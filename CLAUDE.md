@@ -90,8 +90,8 @@ Still unverified, collect real samples before relying on them:
   `You invited BridgeBot to your guild. They have 5 minutes to accept.` (ignored, starts with "You").
 - Ranks DO show on guild join for ranked players (confirmed by Justin), e.g. `[VIP] Name joined the guild!`.
 - STILL NEEDED: leave, promote,
-  demote, level up, quest tier. `ChatRouter` currently guesses `[VIP] Name joined the guild!`
-  between lines of 10+ dashes or underscores. Justin will send real samples.
+  demote, level up, quest tier. Any guild block not starting with "You " is relayed as-is, so
+  these work already; samples are only needed if one should trigger special behavior.
 
 Add every new real sample as a test case (`ChatParserTest` or `FeaturesTest`) before changing a regex.
 
