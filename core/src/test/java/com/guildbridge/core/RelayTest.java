@@ -40,6 +40,20 @@ class RelayTest {
     }
 
     @Test
+    void outgoingDiscordPrefix() {
+        assertEquals("gc [Discord] Justin: hello",
+                OutgoingSanitizer.toGuildCommand("Justin", "hello", null, "[Discord]"));
+        assertEquals("gc [D] Justin: hello",
+                OutgoingSanitizer.toGuildCommand("Justin", "hello", null, " [D] "));
+        assertEquals("gc Justin: hello", OutgoingSanitizer.toGuildCommand("Justin", "hello", null, ""));
+        // No author (welcome messages): no prefix.
+        assertEquals("gc Welcome!", OutgoingSanitizer.toGuildCommand("", "Welcome!", null, "[Discord]"));
+        String longCmd = OutgoingSanitizer.toGuildCommand("Justin", "x".repeat(1000), null, "[Discord]");
+        assertTrue(longCmd.length() + 1 <= OutgoingSanitizer.CHAT_LIMIT);
+        assertTrue(longCmd.startsWith("gc [Discord] Justin: "));
+    }
+
+    @Test
     void outgoingStripsNewlinesAndSectionSigns() {
         assertEquals("gc Justin: line one line two a",
                 OutgoingSanitizer.toGuildCommand("Justin", "line one\nline two §a"));

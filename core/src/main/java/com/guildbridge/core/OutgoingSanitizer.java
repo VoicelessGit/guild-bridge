@@ -13,12 +13,26 @@ public final class OutgoingSanitizer {
      * Returns null if nothing is left to send.
      */
     public static String toGuildCommand(String discordAuthor, String text) {
+        return toGuildCommand(discordAuthor, text, null, "");
+    }
+
+    /**
+     * @param prefix marks the line as coming from Discord, e.g. "[Discord]"; blank for none.
+     *               Only added when there is an author (so welcome messages stay unprefixed).
+     */
+    public static String toGuildCommand(String discordAuthor, String text, ProfanityFilter filter, String prefix) {
+        if (filter != null) {
+            discordAuthor = filter.censor(discordAuthor);
+            text = filter.censor(text);
+        }
         String author = clean(LinkFilter.block(discordAuthor));
         String body = clean(LinkFilter.block(text));
         if (body.isEmpty()) return null;
+        String tag = clean(prefix);
 
         // The leading slash counts toward the limit when the client sends it.
-        String head = COMMAND + (author.isEmpty() ? "" : author + ": ");
+        String who = author.isEmpty() ? "" : (tag.isEmpty() ? "" : tag + " ") + author + ": ";
+        String head = COMMAND + who;
         int room = CHAT_LIMIT - 1 - head.length();
         if (room <= 0) return null;
         if (body.length() > room) body = body.substring(0, room - 3) + "...";
@@ -27,8 +41,7 @@ public final class OutgoingSanitizer {
 
     /** Same as above, with Discord name and text run through the filter first. */
     public static String toGuildCommand(String discordAuthor, String text, ProfanityFilter filter) {
-        if (filter == null) return toGuildCommand(discordAuthor, text);
-        return toGuildCommand(filter.censor(discordAuthor), filter.censor(text));
+        return toGuildCommand(discordAuthor, text, filter, "");
     }
 
     /**

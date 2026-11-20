@@ -58,8 +58,9 @@ Discord to game:
    (including itself, so no echo loop) and webhooks.
 2. `OutgoingSanitizer.discordText(content, attachments, stickers)`: attachments and stickers are
    never relayed, they become `[attachment]` / `[sticker]`.
-3. `OutgoingSanitizer.toGuildCommand(name, text, filter)`: blocks links, censors, strips newlines and
-   section signs, builds `gc <name>: <text>` within the 256 char chat limit.
+3. `OutgoingSanitizer.toGuildCommand(name, text, filter, config.discordPrefix)`: blocks links, censors,
+   strips newlines and section signs, builds `gc [Discord] <name>: <text>` within the 256 char chat
+   limit. `discordPrefix` defaults to "[Discord]"; welcome messages (no author) get no prefix.
 4. `GameSender.queue(cmd, onRejected)`: sends one command per `gameSendGapMillis` on the client
    thread, skips repeats of the last 3 sends (`DuplicateGuard`; Hypixel rejects them anyway).
    On skip or full queue, the bot reacts with ❌ to the Discord message.

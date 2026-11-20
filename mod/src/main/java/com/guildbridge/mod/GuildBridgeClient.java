@@ -60,7 +60,8 @@ public class GuildBridgeClient implements ClientModInitializer {
             LOG.warn("Could not create admins file: {}", e.toString());
         }
         try {
-            bot = new DiscordBot(config.botToken, config.channelId, game, filter, admins, this::statusText);
+            bot = new DiscordBot(config.botToken, config.channelId, game, filter, admins, this::statusText,
+                    config.discordPrefix);
         } catch (RuntimeException e) {
             LOG.error("Discord bot failed to start (bad token?): {}", e.toString());
             return;

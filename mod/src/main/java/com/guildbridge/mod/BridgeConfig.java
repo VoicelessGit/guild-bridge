@@ -21,6 +21,9 @@ final class BridgeConfig {
     // 1 = censor everything in the list, 2 = strong profanity and slurs (default), 3 = slurs only.
     int filterThreshold = 2;
 
+    // Shown before Discord names in game, e.g. "Guild > BridgeBot: [Discord] Justin: hi" ("" = none).
+    String discordPrefix = "[Discord]";
+
     // Server to join automatically from the title screen and after disconnects ("" = off).
     // Set to "mc.hypixel.net" for the headless bridge.
     String autoJoinServer = "";

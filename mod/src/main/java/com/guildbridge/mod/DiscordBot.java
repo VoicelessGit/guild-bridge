@@ -34,14 +34,16 @@ final class DiscordBot extends ListenerAdapter {
     private final ProfanityFilter filter;
     private final AdminList admins;
     private final Supplier<String> status;
+    private final String prefix;
 
     DiscordBot(String token, String channelId, GameSender game, ProfanityFilter filter,
-               AdminList admins, Supplier<String> status) {
+               AdminList admins, Supplier<String> status, String prefix) {
         this.channelId = Long.parseLong(channelId.strip());
         this.game = game;
         this.filter = filter;
         this.admins = admins;
         this.status = status;
+        this.prefix = prefix == null ? "" : prefix;
 
         // Nothing the bot sends may ping @everyone, roles or users.
         MessageRequest.setDefaultMentions(EnumSet.noneOf(Message.MentionType.class));
@@ -98,7 +100,7 @@ final class DiscordBot extends ListenerAdapter {
                 ? event.getMember().getEffectiveName()
                 : event.getAuthor().getEffectiveName();
 
-        String cmd = OutgoingSanitizer.toGuildCommand(name, text, filter);
+        String cmd = OutgoingSanitizer.toGuildCommand(name, text, filter, prefix);
         game.queue(cmd, () -> msg.addReaction(Emoji.fromUnicode("❌")).queue(null, err -> {}));
     }
 
