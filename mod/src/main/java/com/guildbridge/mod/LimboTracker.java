@@ -30,6 +30,8 @@ final class LimboTracker {
     private final boolean autoLimbo;
     private final long autoLimboDelayMillis;
     private volatile long lastLimboAttempt;
+    /** Only one pending /limbo attempt at a time, however many locraw replies arrive. */
+    private final java.util.concurrent.atomic.AtomicBoolean limboPending = new java.util.concurrent.atomic.AtomicBoolean();
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "guildbridge-limbo");
         t.setDaemon(true);
@@ -97,18 +99,22 @@ final class LimboTracker {
 
     /** Sends /limbo after the delay, if still not in limbo. Attempts stay at least 30 s apart. */
     private void scheduleLimbo() {
-        if (!autoLimbo) return;
+        if (!autoLimbo || !limboPending.compareAndSet(false, true)) return;
         timer.schedule(this::attemptLimbo, autoLimboDelayMillis, TimeUnit.MILLISECONDS);
     }
 
     private void attemptLimbo() {
-        if (state != State.ON_HYPIXEL_NOT_LIMBO) return;
+        if (state != State.ON_HYPIXEL_NOT_LIMBO) {
+            limboPending.set(false);
+            return;
+        }
         long wait = LIMBO_MIN_GAP_MILLIS - (System.currentTimeMillis() - lastLimboAttempt);
         if (wait > 0) {
             // Too soon after the last try: try again once the gap has passed, not 10 minutes later.
             timer.schedule(this::attemptLimbo, wait, TimeUnit.MILLISECONDS);
             return;
         }
+        limboPending.set(false);
         lastLimboAttempt = System.currentTimeMillis();
         GuildBridgeClient.LOG.info("Not in limbo (server: {}), sending /limbo", lastServer);
         game.queueUtility("limbo");
