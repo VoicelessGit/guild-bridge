@@ -15,7 +15,9 @@ import net.minecraft.client.Minecraft;
 final class GameSender {
     private static final int MAX_QUEUED = 20;
 
-    private final BlockingQueue<String> queue = new ArrayBlockingQueue<>(MAX_QUEUED);
+    private record Pending(String command, Runnable onRejected) {}
+
+    private final BlockingQueue<Pending> queue = new ArrayBlockingQueue<>(MAX_QUEUED);
     private final DuplicateGuard duplicates = new DuplicateGuard(3);
     private final ScheduledExecutorService ticker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "guildbridge-game");
@@ -27,25 +29,37 @@ final class GameSender {
         ticker.scheduleWithFixedDelay(this::sendNext, gapMillis, gapMillis, TimeUnit.MILLISECONDS);
     }
 
-    /** Queues a command (no leading slash). Drops it if the queue is full. */
     void queue(String command) {
+        queue(command, null);
+    }
+
+    /**
+     * Queues a command (no leading slash). onRejected runs if it is dropped (queue full)
+     * or skipped as a repeat, so the Discord side can react with an X.
+     */
+    void queue(String command, Runnable onRejected) {
         if (command == null) return;
-        if (!queue.offer(command)) {
+        if (!queue.offer(new Pending(command, onRejected))) {
             GuildBridgeClient.LOG.warn("Game send queue full, dropped: {}", command);
+            reject(onRejected);
         }
     }
 
     private void sendNext() {
-        String cmd = queue.poll();
-        if (cmd == null) return;
-        if (!duplicates.tryRecord(cmd)) {
-            // TODO phase 2: tell the Discord author (for example react with an X).
-            GuildBridgeClient.LOG.info("Skipped repeat of a recent message: {}", cmd);
+        Pending p = queue.poll();
+        if (p == null) return;
+        if (!duplicates.tryRecord(p.command())) {
+            GuildBridgeClient.LOG.info("Skipped repeat of a recent message: {}", p.command());
+            reject(p.onRejected());
             return;
         }
         Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> {
-            if (mc.player != null) mc.player.connection.sendCommand(cmd);
+            if (mc.player != null) mc.player.connection.sendCommand(p.command());
         });
+    }
+
+    private static void reject(Runnable onRejected) {
+        if (onRejected != null) onRejected.run();
     }
 }

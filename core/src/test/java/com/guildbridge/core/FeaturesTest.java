@@ -122,7 +122,7 @@ class FeaturesTest {
     @Test
     void announcementWebhookIsCensoredAndBold() throws Exception {
         var a = new BridgeEvent.Announcement("Guild MOTD: shit happens", null);
-        var json = JsonParser.parseString(WebhookPayload.forEvent(a, filter("shit 2", 2))).getAsJsonObject();
+        var json = JsonParser.parseString(DiscordEmbed.forEvent(a, filter("shit 2", 2))).getAsJsonObject();
         assertEquals("Guild MOTD: \\*\\*\\*\\* happens", description(json));
         assertEquals("Guild Announcement", embed(json).get("title").getAsString());
         assertTrue(new LoopGuard("BridgeBot").shouldRelay(a));
@@ -131,7 +131,7 @@ class FeaturesTest {
     @Test
     void chatWebhookIsCensored() throws Exception {
         var e = ChatParser.parse("Guild > BridgeBot: fuck yeah").orElseThrow();
-        var json = JsonParser.parseString(WebhookPayload.forEvent(e, filter("fuck 2", 2))).getAsJsonObject();
+        var json = JsonParser.parseString(DiscordEmbed.forEvent(e, filter("fuck 2", 2))).getAsJsonObject();
         assertEquals("\\*\\*\\*\\* yeah", description(json));
     }
 
@@ -193,14 +193,14 @@ class FeaturesTest {
     @Test
     void joinAnnouncementEmbedShowsNewMembersHead() {
         var a = new BridgeEvent.Announcement("BridgeBot joined the guild!", "BridgeBot");
-        var json = JsonParser.parseString(WebhookPayload.forEvent(a)).getAsJsonObject();
+        var json = JsonParser.parseString(DiscordEmbed.forEvent(a)).getAsJsonObject();
         assertEquals("https://mc-heads.net/avatar/BridgeBot",
                 embed(json).getAsJsonObject("thumbnail").get("url").getAsString());
-        assertEquals(WebhookPayload.ANNOUNCEMENT_GOLD, embed(json).get("color").getAsInt());
+        assertEquals(DiscordEmbed.ANNOUNCEMENT_GOLD, embed(json).get("color").getAsInt());
     }
 
     static com.google.gson.JsonObject embed(com.google.gson.JsonObject json) {
-        return json.getAsJsonArray("embeds").get(0).getAsJsonObject();
+        return json; // DiscordEmbed returns the embed object itself
     }
 
     static String description(com.google.gson.JsonObject json) {

@@ -10,7 +10,9 @@ import java.nio.file.Path;
 final class BridgeConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    String webhookUrl = "";
+    // Discord bot (Developer Portal > Bot > Reset Token) and the bridge channel's ID.
+    String botToken = "";
+    String channelId = "";
 
     // Welcome new guild members on their first join only.
     boolean welcomeEnabled = true;
@@ -22,9 +24,10 @@ final class BridgeConfig {
     // Gap between messages the bot sends in game, in milliseconds.
     long gameSendGapMillis = 1500;
 
-    // Phase 2 (Discord to game):
-    String botToken = "";
-    String channelId = "";
+    boolean isComplete() {
+        return botToken != null && !botToken.isBlank()
+                && channelId != null && channelId.strip().matches("\\d{15,25}");
+    }
 
     static BridgeConfig load(Path file) {
         try {

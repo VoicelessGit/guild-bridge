@@ -31,6 +31,17 @@ public final class OutgoingSanitizer {
         return toGuildCommand(filter.censor(discordAuthor), filter.censor(text));
     }
 
+    /**
+     * The text to relay for a Discord message. Attachments and stickers are never relayed
+     * (they are links in disguise); they show up as "[attachment]" / "[sticker]" instead.
+     */
+    public static String discordText(String content, int attachments, int stickers) {
+        StringBuilder sb = new StringBuilder(content == null ? "" : content.strip());
+        if (attachments > 0) sb.append(sb.isEmpty() ? "" : " ").append("[attachment]");
+        if (stickers > 0) sb.append(sb.isEmpty() ? "" : " ").append("[sticker]");
+        return sb.toString();
+    }
+
     /** Builds the welcome command from a template such as "Welcome to the guild, {name}!". */
     public static String welcomeCommand(String template, String name) {
         return toGuildCommand("", template.replace("{name}", name));

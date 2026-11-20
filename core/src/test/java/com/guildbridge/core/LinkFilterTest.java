@@ -34,7 +34,7 @@ class LinkFilterTest {
     @Test
     void gameToDiscordBlocksLinks() {
         var e = ChatParser.parse("Guild > BridgeBot: free coins at scam.xyz/login").orElseThrow();
-        var json = JsonParser.parseString(WebhookPayload.forEvent(e)).getAsJsonObject();
+        var json = JsonParser.parseString(DiscordEmbed.forEvent(e)).getAsJsonObject();
         assertEquals("free coins at [blocked link]", FeaturesTest.description(json));
     }
 

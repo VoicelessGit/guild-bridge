@@ -15,21 +15,23 @@ class RelayTest {
     }
 
     @Test
-    void webhookBlocksAllMentions() {
+    void chatEmbedShowsPlayerAsAuthor() {
         var event = ChatParser.parse("Guild > BridgeBot: @everyone hi").orElseThrow();
-        var json = JsonParser.parseString(WebhookPayload.forEvent(event)).getAsJsonObject();
-        assertEquals(0, json.getAsJsonObject("allowed_mentions").getAsJsonArray("parse").size());
-        assertEquals("BridgeBot", json.get("username").getAsString());
-        assertTrue(json.get("avatar_url").getAsString().endsWith("/BridgeBot"));
+        var json = JsonParser.parseString(DiscordEmbed.forEvent(event)).getAsJsonObject();
+        var author = json.getAsJsonObject("author");
+        assertEquals("BridgeBot", author.get("name").getAsString());
+        assertTrue(author.get("icon_url").getAsString().endsWith("/BridgeBot"));
+        // Mentions inside embeds never ping, and the mod also disables mentions on every message.
+        assertEquals("@everyone hi", json.get("description").getAsString());
     }
 
     @Test
-    void webhookShowsGuildRankAndEscapesMarkdown() {
+    void chatEmbedShowsGuildRankAndEscapesMarkdown() {
         var event = ChatParser.parse("Guild > [VIP+] ExamplePlayer [GM]: *bold* _it_").orElseThrow();
-        var json = JsonParser.parseString(WebhookPayload.forEvent(event)).getAsJsonObject();
-        assertEquals("ExamplePlayer [GM]", json.get("username").getAsString());
+        var json = JsonParser.parseString(DiscordEmbed.forEvent(event)).getAsJsonObject();
+        assertEquals("ExamplePlayer [GM]", json.getAsJsonObject("author").get("name").getAsString());
         assertEquals("\\*bold\\* \\_it\\_", FeaturesTest.description(json));
-        assertEquals(WebhookPayload.GUILD_GREEN, FeaturesTest.embed(json).get("color").getAsInt());
+        assertEquals(DiscordEmbed.GUILD_GREEN, FeaturesTest.embed(json).get("color").getAsInt());
     }
 
     @Test
@@ -48,6 +50,14 @@ class RelayTest {
         String cmd = OutgoingSanitizer.toGuildCommand("Justin", "x".repeat(1000));
         assertTrue(cmd.length() + 1 <= OutgoingSanitizer.CHAT_LIMIT, "length " + cmd.length());
         assertTrue(cmd.endsWith("..."));
+    }
+
+    @Test
+    void discordAttachmentsAndStickersAreNotRelayed() {
+        assertEquals("look [attachment]", OutgoingSanitizer.discordText("look", 2, 0));
+        assertEquals("[attachment]", OutgoingSanitizer.discordText("", 1, 0));
+        assertEquals("[sticker]", OutgoingSanitizer.discordText(null, 0, 1));
+        assertEquals("hi", OutgoingSanitizer.discordText(" hi ", 0, 0));
     }
 
     @Test

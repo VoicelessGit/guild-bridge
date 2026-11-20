@@ -2,31 +2,35 @@ package com.guildbridge.mod;
 
 import com.guildbridge.core.BridgeEvent;
 import com.guildbridge.core.ChatRouter;
+import com.guildbridge.core.DiscordEmbed;
 import com.guildbridge.core.LoopGuard;
 import com.guildbridge.core.OutgoingSanitizer;
 import com.guildbridge.core.ProfanityFilter;
-import com.guildbridge.core.WebhookPayload;
 import com.guildbridge.core.WelcomeTracker;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ServerData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Entry point. Thin glue: chat event in, core logic, webhook and game commands out. */
+/** Entry point. Thin glue: chat events in, core logic, Discord bot and game commands out. */
 public class GuildBridgeClient implements ClientModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger("guildbridge");
 
     private final ChatRouter router = new ChatRouter();
     private BridgeConfig config;
     private ProfanityFilter filter;
-    private WebhookSender webhook;
     private GameSender game;
+    private DiscordBot bot;
     private WelcomeTracker welcomes;
     private LoopGuard guard;
 
@@ -34,23 +38,31 @@ public class GuildBridgeClient implements ClientModInitializer {
     public void onInitializeClient() {
         Path dir = FabricLoader.getInstance().getConfigDir();
         config = BridgeConfig.load(dir.resolve("guildbridge.json"));
-        if (config.webhookUrl == null || config.webhookUrl.isBlank()) {
-            LOG.warn("No webhookUrl in config/guildbridge.json, bridge is disabled");
+        if (!config.isComplete()) {
+            LOG.warn("Set botToken and channelId in config/guildbridge.json, bridge is disabled");
             return;
         }
         filter = loadFilter(dir.resolve("guildbridge-filter.txt"), config.filterThreshold);
-        webhook = new WebhookSender(config.webhookUrl);
         game = new GameSender(config.gameSendGapMillis);
         try {
             welcomes = new WelcomeTracker(dir.resolve("guildbridge-welcomed.txt"));
         } catch (IOException e) {
             LOG.error("Could not read welcomed list, welcomes disabled: {}", e.toString());
         }
+        try {
+            bot = new DiscordBot(config.botToken, config.channelId, game, filter);
+        } catch (RuntimeException e) {
+            LOG.error("Discord bot failed to start (bad token?): {}", e.toString());
+            return;
+        }
 
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             if (overlay) return; // action bar text, not chat
             for (BridgeEvent event : router.accept(message.getString())) handle(event);
         });
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> bot.setOnHypixel(onHypixel()));
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> bot.setOnHypixel(false));
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> bot.shutdown());
         LOG.info("Guild Bridge ready");
     }
 
@@ -61,7 +73,7 @@ public class GuildBridgeClient implements ClientModInitializer {
         }
         if (!guard.shouldRelay(event)) return;
 
-        webhook.send(WebhookPayload.forEvent(event, filter));
+        bot.post(DiscordEmbed.forEvent(event, filter));
 
         if (event instanceof BridgeEvent.Announcement a && a.joinedMember() != null) {
             welcome(a.joinedMember());
@@ -77,6 +89,11 @@ public class GuildBridgeClient implements ClientModInitializer {
         } catch (IOException e) {
             LOG.warn("Could not save welcomed list: {}", e.toString());
         }
+    }
+
+    private static boolean onHypixel() {
+        ServerData server = Minecraft.getInstance().getCurrentServer();
+        return server != null && server.ip.toLowerCase(Locale.ROOT).contains("hypixel.net");
     }
 
     /** Uses config/guildbridge-filter.txt if present, otherwise the list bundled in the jar. */
