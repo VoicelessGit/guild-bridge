@@ -15,7 +15,7 @@ parked in Hypixel limbo. It does NOT use Mineflayer or any reimplemented protoco
 ## Layout
 
 ```
-core/   Plain Java 21, no Minecraft dependency. All parsing, sanitizing, payload building.
+core/   Plain Java 25, no Minecraft dependency. All parsing, sanitizing, payload building.
         Fully unit-tested with JUnit 5. Put every piece of logic that can live here, here.
 mod/    Fabric client mod. Thin glue only: chat event in, core calls, HTTP out, commands out.
 ```
@@ -109,8 +109,10 @@ Add every new real sample as a test case (`ChatParserTest` or `FeaturesTest`) be
 1. [x] core: parser, loop guard, webhook payload, outgoing sanitizer, tests
 1b. [x] core: profanity filter, duplicate guard, welcome tracker, announcement router (30 tests)
 1c. [ ] Fill severity 3 tier of the filter list; replace guessed announcement formats with real ones
-2. [ ] Fill in exact Fabric versions in `gradle.properties` from https://fabricmc.net/develop
-       and confirm `:mod:build` works. Generate the Gradle wrapper (`gradle wrapper`).
+2. [~] Targets Minecraft 26.2 (latest, unobfuscated), Loader 0.19.3, Loom 1.17, Fabric API
+       0.155.2+26.2, Gradle 9.5.1 wrapper, Java 25. Never built yet: run `:core:test`, then
+       `:mod:build`, and fix any Fabric API names that changed in 26.x (see the Fabric API 26.1
+       porting guide on docs.fabricmc.net).
 3. [~] mod: config file at `config/guildbridge.json` (webhook URL now; bot token and channel id
        reserved for phase 2). Own IGN comes from `Minecraft.getInstance().getUser().getName()`.
 4. [~] mod: game to Discord via webhook. Glue code is written in `GuildBridgeClient` and
@@ -123,7 +125,7 @@ Add every new real sample as a test case (`ChatParserTest` or `FeaturesTest`) be
 
 ## Conventions
 
-- Java 21. No em dashes in user-facing strings or docs.
+- Java 25. No em dashes in user-facing strings or docs.
 - Secrets (webhook URL, bot token) live only in `config/guildbridge.json`, never in git.
 - Do not add any automation beyond chat relay (no auto-movement, no anti-AFK, no auto-accepting
   invites). Keeping the client's behavior boring is the whole point.
