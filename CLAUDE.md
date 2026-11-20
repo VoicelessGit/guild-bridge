@@ -66,10 +66,10 @@ Discord to game (phase 2, not built yet):
 
 - Slowmode 5 to 10 s on the bridge channel (Channel settings > Overview > Slowmode).
 - Game to Discord uses a webhook, which slowmode does not throttle.
-- For phase 2, give the bot's role the standalone "Bypass Slowmode" permission.
-- Bot invite permissions: View Channels, Send Messages, Read Message History, Add Reactions,
-  Embed Links (only needed if the bot account itself posts embeds), Bypass Slowmode. As of Feb 2026,
+- For phase 2, give the bot's role the standalone "Bypass Slowmode" permission. As of Feb 2026,
   Manage Messages / Manage Channel no longer bypass slowmode automatically.
+- Bot invite permissions: View Channels, Send Messages, Read Message History, Add Reactions,
+  Embed Links (only needed if the bot account itself posts embeds), Bypass Slowmode.
 - Users sending from Discord to game are rate-limited by slowmode, which also protects the
   in-game chat cooldown.
 
