@@ -1,5 +1,6 @@
 package com.guildbridge.mod;
 
+import com.guildbridge.core.AdminList;
 import com.guildbridge.core.BridgeEvent;
 import com.guildbridge.core.ChatRouter;
 import com.guildbridge.core.DiscordEmbed;
@@ -14,6 +15,7 @@ import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -33,6 +35,7 @@ public class GuildBridgeClient implements ClientModInitializer {
     private WelcomeTracker welcomes;
     private LoopGuard guard;
     private LimboTracker limbo;
+    private AutoJoin autoJoin;
 
     @Override
     public void onInitializeClient() {
@@ -49,8 +52,14 @@ public class GuildBridgeClient implements ClientModInitializer {
         } catch (IOException e) {
             LOG.error("Could not read welcomed list, welcomes disabled: {}", e.toString());
         }
+        AdminList admins = new AdminList(dir.resolve("guildbridge-admins.txt"));
         try {
-            bot = new DiscordBot(config.botToken, config.channelId, game, filter);
+            admins.createIfMissing();
+        } catch (IOException e) {
+            LOG.warn("Could not create admins file: {}", e.toString());
+        }
+        try {
+            bot = new DiscordBot(config.botToken, config.channelId, game, filter, admins, this::statusText);
         } catch (RuntimeException e) {
             LOG.error("Discord bot failed to start (bad token?): {}", e.toString());
             return;
@@ -65,7 +74,12 @@ public class GuildBridgeClient implements ClientModInitializer {
             if (overlay) return; // action bar text, not chat
             for (BridgeEvent event : router.accept(message.getString())) handle(event);
         });
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> limbo.worldChanged());
+        autoJoin = new AutoJoin(config.autoJoinServer);
+        ClientTickEvents.END_CLIENT_TICK.register(client -> autoJoin.tick(client));
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            autoJoin.joined();
+            limbo.worldChanged();
+        });
         ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE.register((client, level) -> limbo.worldChanged());
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> limbo.disconnected());
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> bot.shutdown());
@@ -95,6 +109,17 @@ public class GuildBridgeClient implements ClientModInitializer {
         } catch (IOException e) {
             LOG.warn("Could not save welcomed list: {}", e.toString());
         }
+    }
+
+    /** Reply to !status. */
+    private String statusText() {
+        if (limbo == null || autoJoin == null) return "Starting up.";
+        String where = switch (limbo.state()) {
+            case IN_LIMBO -> "In limbo, relaying.";
+            case ON_HYPIXEL_NOT_LIMBO -> "On Hypixel but not in limbo (server: " + limbo.lastServer() + ").";
+            case NOT_ON_HYPIXEL -> "Not connected to Hypixel.";
+        };
+        return where + (autoJoin.enabled() ? " Auto-join is on." : " Auto-join is off.");
     }
 
     /** Status light plus a one-line notice in the channel on every change. */

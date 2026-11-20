@@ -21,6 +21,10 @@ final class BridgeConfig {
     // 1 = censor everything in the list, 2 = strong profanity and slurs (default), 3 = slurs only.
     int filterThreshold = 2;
 
+    // Server to join automatically from the title screen and after disconnects ("" = off).
+    // Set to "mc.hypixel.net" for the headless bridge.
+    String autoJoinServer = "";
+
     // Gap between messages the bot sends in game, in milliseconds.
     long gameSendGapMillis = 1500;
 

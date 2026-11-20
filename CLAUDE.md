@@ -79,6 +79,17 @@ Bot status (health light), set on every limbo state change, with a one-line noti
 - Do Not Disturb, "Not on Hypixel" (startup and disconnect).
 - Offline: game closed (`jda.shutdown()` on `CLIENT_STOPPING`) or crashed (Discord times it out).
 
+Auto-join (`AutoJoin`, for headless runs):
+- `autoJoinServer` in config ("" = off; "mc.hypixel.net" for the bridge). On the title,
+  disconnected or multiplayer screen, connect via `ConnectScreen.startConnecting`. First try 10 s
+  after startup, then backoff 30 s, 1, 2, 4, 8, max 10 min; reset on successful join.
+
+Admin console (in the bridge channel, never relayed):
+- `config/guildbridge-admins.txt`: Discord user IDs, one per line, # comments. Created with
+  instructions on first launch. Re-read when the file changes, no restart needed (`AdminList`).
+- `!mc <command>` runs a game command via `GameSender.queueUtility` and reacts ✅.
+  `!status` replies with limbo state and auto-join state. Non-admins get ⛔.
+
 ## Moderation
 
 - `ProfanityFilter` severities: 1 mild (not censored by default), 2 strong profanity, 3 slurs.
@@ -125,16 +136,19 @@ Add every new real sample as a test case before changing a regex.
 ## Roadmap
 
 1. [x] core: parser, router, filters, duplicate guard, welcome tracker, embed builder, locraw (49 tests)
-2. [ ] First real build. Targets Minecraft 26.2 (unobfuscated), Loader 0.19.3, Loom 1.17,
+2. [x] First real build works on Justin's Mac (only fix needed: ClientWorldEvents rename).
+       Original notes: Targets Minecraft 26.2 (unobfuscated), Loader 0.19.3, Loom 1.17,
        Fabric API 0.155.2+26.2, JDA 6.5.0, Shadow 9.4.3, Gradle 9.5.1, Java 25. The mod code has
        NEVER been compiled. Expect to fix Fabric API names changed in 26.x (see the Fabric API
        26.1 porting guide on docs.fabricmc.net), Mojang names (e.g. `ServerData.ip`), and JDA 6
        API details. Check the shadow jar does not include voice/DAVE natives; exclude them if so.
 3. [ ] Fill severity 3 tier of the filter list
 4. [ ] Test in a normal client with a private test guild and test Discord server
-5. [ ] Disconnect detection, auto-reconnect after a delay, get back to limbo (verify in game which
-       route works reliably; do not guess). Post "bridge offline/online" notices.
-6. [ ] Trial run in HeadlessMc (check it supports 26.2), watch memory with the Spark mod
+5. [~] Auto-join and reconnect with backoff (written, not yet compiled). Limbo is reached by
+       Hypixel's AFK system; confirm how long that takes in practice.
+6. [~] HeadlessMc 3.0.0-RC9 runs Fabric 26.2 headless on macOS (verified). Launch with
+       `launch fabric 26.2 -lwjgl`; its game folder is `~/Library/Application Support/minecraft/fabric-26.2/`
+       (mods/ and config/ go there). Next: multi-day trial, watch memory with the Spark mod.
 
 ## Where it runs
 

@@ -1,8 +1,11 @@
 package com.guildbridge.mod;
 
+import com.guildbridge.core.AdminCommand;
+import com.guildbridge.core.AdminList;
 import com.guildbridge.core.OutgoingSanitizer;
 import com.guildbridge.core.ProfanityFilter;
 import java.util.EnumSet;
+import java.util.function.Supplier;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -29,11 +32,16 @@ final class DiscordBot extends ListenerAdapter {
     private final long channelId;
     private final GameSender game;
     private final ProfanityFilter filter;
+    private final AdminList admins;
+    private final Supplier<String> status;
 
-    DiscordBot(String token, String channelId, GameSender game, ProfanityFilter filter) {
+    DiscordBot(String token, String channelId, GameSender game, ProfanityFilter filter,
+               AdminList admins, Supplier<String> status) {
         this.channelId = Long.parseLong(channelId.strip());
         this.game = game;
         this.filter = filter;
+        this.admins = admins;
+        this.status = status;
 
         // Nothing the bot sends may ping @everyone, roles or users.
         MessageRequest.setDefaultMentions(EnumSet.noneOf(Message.MentionType.class));
@@ -80,6 +88,10 @@ final class DiscordBot extends ListenerAdapter {
         if (event.getAuthor().isBot() || event.isWebhookMessage()) return;
 
         Message msg = event.getMessage();
+        if (AdminCommand.looksLikeCommand(msg.getContentRaw())) {
+            handleAdmin(event, msg);
+            return; // admin commands are never relayed to guild chat
+        }
         String text = OutgoingSanitizer.discordText(
                 msg.getContentDisplay(), msg.getAttachments().size(), msg.getStickers().size());
         String name = event.getMember() != null
@@ -88,5 +100,25 @@ final class DiscordBot extends ListenerAdapter {
 
         String cmd = OutgoingSanitizer.toGuildCommand(name, text, filter);
         game.queue(cmd, () -> msg.addReaction(Emoji.fromUnicode("❌")).queue(null, err -> {}));
+    }
+
+    private void handleAdmin(MessageReceivedEvent event, Message msg) {
+        if (!admins.isAdmin(event.getAuthor().getId())) {
+            msg.addReaction(Emoji.fromUnicode("⛔")).queue(null, err -> {});
+            return;
+        }
+        var parsed = AdminCommand.parse(msg.getContentRaw());
+        if (parsed.isEmpty()) {
+            msg.reply("Usage: `!mc <command>` (for example `!mc /lobby`) or `!status`").queue(null, err -> {});
+            return;
+        }
+        switch (parsed.get()) {
+            case AdminCommand.Status s -> msg.reply(status.get()).queue(null, err -> {});
+            case AdminCommand.Run r -> {
+                GuildBridgeClient.LOG.info("Admin {} ran /{}", event.getAuthor().getName(), r.command());
+                game.queueUtility(r.command());
+                msg.addReaction(Emoji.fromUnicode("✅")).queue(null, err -> {});
+            }
+        }
     }
 }
