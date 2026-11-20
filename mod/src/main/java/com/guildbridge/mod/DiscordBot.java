@@ -73,18 +73,35 @@ final class DiscordBot extends ListenerAdapter {
                 .build();
     }
 
-    /** Posts an embed built by core's DiscordEmbed. JDA handles Discord's rate limits. */
+    /**
+     * Posts an embed built by core's DiscordEmbed. JDA handles Discord's rate limits.
+     * Never throws: this is called from inside the game's chat handling, where any exception
+     * makes Minecraft disconnect from the server ("Network Protocol Error").
+     */
     void post(String embedJson) {
-        TextChannel channel = jda.getTextChannelById(channelId);
-        if (channel == null) {
-            GuildBridgeClient.LOG.warn("Bridge channel not found yet (still connecting, or wrong channelId)");
-            return;
+        try {
+            TextChannel channel = jda.getTextChannelById(channelId);
+            if (channel == null) {
+                GuildBridgeClient.LOG.warn("Bridge channel not found yet (still connecting, or wrong channelId)");
+                return;
+            }
+            channel.sendMessageEmbeds(EmbedBuilder.fromData(DataObject.fromJson(embedJson)).build())
+                    .queue(null, err -> GuildBridgeClient.LOG.warn("Discord send failed: {}", err.toString()));
+        } catch (RuntimeException e) {
+            // Usually a missing channel permission (Embed Links, Send Messages, View Channel).
+            GuildBridgeClient.LOG.warn("Discord send failed: {}", e.toString());
         }
-        channel.sendMessageEmbeds(EmbedBuilder.fromData(DataObject.fromJson(embedJson)).build())
-                .queue(null, err -> GuildBridgeClient.LOG.warn("Discord send failed: {}", err.toString()));
     }
 
     void setState(LimboTracker.State state) {
+        try {
+            applyState(state);
+        } catch (RuntimeException e) {
+            GuildBridgeClient.LOG.warn("Could not set bot status: {}", e.toString());
+        }
+    }
+
+    private void applyState(LimboTracker.State state) {
         switch (state) {
             case IN_LIMBO -> jda.getPresence().setPresence(
                     OnlineStatus.ONLINE, Activity.customStatus("In limbo, bridging guild chat"));
@@ -101,6 +118,14 @@ final class DiscordBot extends ListenerAdapter {
 
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
+        try {
+            onMessage(event);
+        } catch (RuntimeException e) {
+            GuildBridgeClient.LOG.warn("Error handling Discord message: {}", e.toString());
+        }
+    }
+
+    private void onMessage(MessageReceivedEvent event) {
         if (event.getChannel().getIdLong() != channelId) return;
         // Ignores itself (no echo loop), other bots, and webhooks.
         if (event.getAuthor().isBot() || event.isWebhookMessage()) return;
@@ -137,11 +162,11 @@ final class DiscordBot extends ListenerAdapter {
 
         switch (p) {
             case BotCommand.Invalid i -> reply(msg, i.message());
-            case BotCommand.Commands c -> msg.replyEmbeds(new EmbedBuilder()
+            case BotCommand.Commands c -> replyEmbed(msg, new EmbedBuilder()
                     .setTitle("Bridge commands")
                     .setDescription(BotCommand.helpText())
                     .setColor(0x00AA00)
-                    .build()).queue(null, err -> {});
+                    .build());
             case BotCommand.Status s -> reply(msg, control.status());
             case BotCommand.Uptime u -> reply(msg, control.uptime());
             case BotCommand.Restart r -> {
@@ -181,21 +206,35 @@ final class DiscordBot extends ListenerAdapter {
 
         react(msg, "👀");
         game.queueUtility(BotCommand.gameCommand(p),
-                () -> capture.begin(text -> msg.replyEmbeds(
-                                EmbedBuilder.fromData(DataObject.fromJson(DiscordEmbed.response(title, text, filter)))
-                                        .build())
-                        .queue(null, err -> {})),
+                () -> capture.begin(text -> replyEmbed(msg,
+                        EmbedBuilder.fromData(DataObject.fromJson(DiscordEmbed.response(title, text, filter))).build())),
                 () -> {
                     capture.cancel();
                     react(msg, "❌");
                 });
     }
 
+    private static void replyEmbed(Message msg, net.dv8tion.jda.api.entities.MessageEmbed embed) {
+        try {
+            msg.replyEmbeds(embed).queue(null, err -> {});
+        } catch (RuntimeException e) {
+            GuildBridgeClient.LOG.warn("Could not reply in Discord (missing Embed Links?): {}", e.toString());
+        }
+    }
+
     private static void reply(Message msg, String text) {
-        msg.reply(text).queue(null, err -> {});
+        try {
+            msg.reply(text).queue(null, err -> {});
+        } catch (RuntimeException e) {
+            GuildBridgeClient.LOG.warn("Could not reply in Discord: {}", e.toString());
+        }
     }
 
     private static void react(Message msg, String emoji) {
-        msg.addReaction(Emoji.fromUnicode(emoji)).queue(null, err -> {});
+        try {
+            msg.addReaction(Emoji.fromUnicode(emoji)).queue(null, err -> {});
+        } catch (RuntimeException e) {
+            GuildBridgeClient.LOG.warn("Could not react in Discord (missing Add Reactions?): {}", e.toString());
+        }
     }
 }

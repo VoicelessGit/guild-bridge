@@ -175,6 +175,13 @@ display and power are connected.
 
 ## Conventions
 
+- NEVER let an exception escape a handler that runs on the game thread (chat events, ticks,
+  connection events). Minecraft turns it into "Network Protocol Error" and disconnects. JDA throws
+  `InsufficientPermissionException` synchronously from send/react/reply, so every Discord call is
+  wrapped (`DiscordBot.post`, `reply`, `replyEmbed`, `react`, `setState`) and every Fabric handler
+  in `GuildBridgeClient` has a try/catch. Learned the hard way: a missing Embed Links permission
+  disconnected the bridge from Hypixel (Nov 2026).
+
 - Java 25. No em dashes in user-facing strings or docs.
 - Secrets (bot token) live only in `config/guildbridge.json`, never in git.
 - Do not add any automation beyond chat relay (no auto-movement, no anti-AFK, no auto-accepting

@@ -80,23 +80,32 @@ public class GuildBridgeClient implements ClientModInitializer {
                 config.autoLimbo, Math.max(1, config.autoLimboDelaySeconds) * 1000L);
 
         // Hide our own /locraw replies from chat before anything else sees them.
-        ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) ->
-                overlay || limbo.allowChatLine(message.getString()));
+        // Every handler that runs inside the game's packet handling is wrapped: an exception there
+        // makes Minecraft disconnect with "Network Protocol Error".
+        ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> {
+            try {
+                return overlay || limbo.allowChatLine(message.getString());
+            } catch (Throwable t) {
+                LOG.warn("Error in limbo check, letting message through: {}", t.toString());
+                return true;
+            }
+        });
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-            if (overlay) return; // action bar text, not chat
-            String text = message.getString();
-            boolean capturing = capture.active();
-            if (capturing) captureNonGuildLines(text);
-            for (BridgeEvent event : router.accept(text)) {
-                // While a command reply is being captured, its blocks (e.g. /g online) are part of
-                // the reply, not announcements. Guild chat keeps flowing normally.
-                if (capturing && event instanceof BridgeEvent.Announcement) continue;
-                handle(event);
+            try {
+                onGameMessage(message.getString(), overlay);
+            } catch (Throwable t) {
+                LOG.warn("Error handling chat message: {}", t.toString());
             }
         });
         autoJoin = new AutoJoin(config.autoJoinServer, config.autoJoinRetrySeconds, config.autoJoinMaxRetrySeconds);
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> autoJoin.screenOpened(screen));
-        ClientTickEvents.END_CLIENT_TICK.register(client -> autoJoin.tick(client));
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            try {
+                autoJoin.tick(client);
+            } catch (Throwable t) {
+                LOG.warn("Auto-join error: {}", t.toString());
+            }
+        });
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> autoJoin.clientStarted());
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             joinedAt = System.currentTimeMillis();
@@ -108,8 +117,27 @@ public class GuildBridgeClient implements ClientModInitializer {
             joinedAt = 0;
             limbo.disconnected();
         });
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> bot.shutdown());
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            try {
+                bot.shutdown();
+            } catch (Throwable t) {
+                LOG.warn("Bot shutdown error: {}", t.toString());
+            }
+        });
         LOG.info("Guild Bridge ready");
+    }
+
+
+    private void onGameMessage(String text, boolean overlay) {
+        if (overlay) return; // action bar text, not chat
+        boolean capturing = capture.active();
+        if (capturing) captureNonGuildLines(text);
+        for (BridgeEvent event : router.accept(text)) {
+            // While a command reply is being captured, its blocks (e.g. /g online) are part of
+            // the reply, not announcements. Guild chat keeps flowing normally.
+            if (capturing && event instanceof BridgeEvent.Announcement) continue;
+            handle(event);
+        }
     }
 
     private void handle(BridgeEvent event) {
