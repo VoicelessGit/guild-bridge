@@ -33,20 +33,41 @@ Rule: if a change can be tested without Minecraft, it goes in `core` with a test
 Game to Discord:
 1. Fabric `ClientReceiveMessageEvents.GAME` fires with a `Component`.
 2. Take `component.getString()` (plain text, color codes already stripped).
-3. `ChatParser.parse(line)` returns a `BridgeEvent` or empty (non-guild lines like
-   "X joined the lobby!" must return empty).
+3. `ChatRouter.accept(text)` splits on newlines and returns `BridgeEvent`s:
+   - Lines between separator bars become one `Announcement` (only if the block mentions "guild"
+     and is not an invite). If it says "X joined the guild!", `joinedMember` is set.
+   - Other lines go to `ChatParser` (guild/officer chat, online status). Everything else is dropped.
 4. `LoopGuard` drops lines authored by the bot's own IGN.
-5. `WebhookPayload.forChat(event)` builds JSON. It ALWAYS sets `allowed_mentions: {parse: []}`
-   so nobody in game can ping @everyone or roles.
-6. One shared `java.net.http.HttpClient` posts it asynchronously. Never block the render thread.
+5. `WebhookPayload.forEvent(event, filter)` censors player text with `ProfanityFilter`, escapes
+   markdown, and ALWAYS sets `allowed_mentions: {parse: []}` so nobody can ping @everyone.
+6. `WebhookSender` posts in order on one background thread. Never block the render thread.
+7. If an announcement has `joinedMember` and `WelcomeTracker.firstTime(name)` is true, queue
+   `OutgoingSanitizer.welcomeCommand(config.welcomeMessage, name)` on `GameSender`.
 
 Discord to game (phase 2, not built yet):
 1. Bot (JDA) receives a message in the configured channel. Ignore bots and webhooks.
-2. `OutgoingSanitizer.toGuildCommand(author, text)` builds `gc <author>: <text>`,
+2. `OutgoingSanitizer.toGuildCommand(author, text, filter)` censors, builds `gc <author>: <text>`,
    strips newlines and section signs, enforces the 256 char chat limit.
-3. Queue it and send on the client thread via
-   `Minecraft.getInstance().execute(() -> player.connection.sendCommand(cmd))`,
-   at most one message per ~1.5 s to respect Hypixel's chat cooldown.
+3. `GameSender.queue(cmd)`. It already spaces sends by `gameSendGapMillis`, skips repeats of the
+   last 3 sends (`DuplicateGuard`, Hypixel rejects them anyway), and sends on the client thread.
+
+## Moderation
+
+- `ProfanityFilter` severities: 1 mild (not censored by default), 2 strong profanity, 3 slurs.
+  `filterThreshold` in config defaults to 2 ("mid to high"). Applies in BOTH directions.
+- Bundled list: `core/src/main/resources/guildbridge/filter-words.txt`. Users can override with
+  `config/guildbridge-filter.txt`. The severity 3 tier is EMPTY and must be filled by Justin
+  from a maintained list. Do not generate slur lists.
+- Censored words become asterisks of the same length.
+
+## Discord channel setup (manual, not code)
+
+- Slowmode 5 to 10 s on the bridge channel (Channel settings > Overview > Slowmode).
+- Game to Discord uses a webhook, which slowmode does not throttle.
+- For phase 2, give the bot's role the standalone "Bypass Slowmode" permission. As of Feb 2026,
+  Manage Messages / Manage Channel no longer bypass slowmode automatically.
+- Users sending from Discord to game are rate-limited by slowmode, which also protects the
+  in-game chat cooldown.
 
 ## Hypixel chat formats (verified from a real screenshot, Nov 2026)
 
@@ -60,13 +81,17 @@ Still unverified, collect real samples before relying on them:
 - `Guild > Name joined.` / `Guild > Name left.` (online status)
 - `Officer > ...` (officer chat)
 - `[MVP++]`, `[YOUTUBE]`, staff ranks
-- Guild join, leave, kick, promote messages
+- Guild announcement blocks: separator style, and exact wording of join, leave, kick, promote,
+  demote, level up, quest tier. `ChatRouter` currently guesses `[VIP] Name joined the guild!`
+  between lines of 10+ dashes or underscores. Justin will send real samples.
 
-Add every new real sample as a test case in `ChatParserTest` before changing the regex.
+Add every new real sample as a test case (`ChatParserTest` or `FeaturesTest`) before changing a regex.
 
 ## Roadmap
 
 1. [x] core: parser, loop guard, webhook payload, outgoing sanitizer, tests
+1b. [x] core: profanity filter, duplicate guard, welcome tracker, announcement router (30 tests)
+1c. [ ] Fill severity 3 tier of the filter list; replace guessed announcement formats with real ones
 2. [ ] Fill in exact Fabric versions in `gradle.properties` from https://fabricmc.net/develop
        and confirm `:mod:build` works. Generate the Gradle wrapper (`gradle wrapper`).
 3. [~] mod: config file at `config/guildbridge.json` (webhook URL now; bot token and channel id

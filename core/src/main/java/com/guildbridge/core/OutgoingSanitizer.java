@@ -25,6 +25,17 @@ public final class OutgoingSanitizer {
         return head + body;
     }
 
+    /** Same as above, with Discord name and text run through the filter first. */
+    public static String toGuildCommand(String discordAuthor, String text, ProfanityFilter filter) {
+        if (filter == null) return toGuildCommand(discordAuthor, text);
+        return toGuildCommand(filter.censor(discordAuthor), filter.censor(text));
+    }
+
+    /** Builds the welcome command from a template such as "Welcome to the guild, {name}!". */
+    public static String welcomeCommand(String template, String name) {
+        return toGuildCommand("", template.replace("{name}", name));
+    }
+
     private static String clean(String s) {
         if (s == null) return "";
         return s.replace('§', ' ')

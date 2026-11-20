@@ -1,9 +1,16 @@
 package com.guildbridge.mod;
 
 import com.guildbridge.core.BridgeEvent;
-import com.guildbridge.core.ChatParser;
+import com.guildbridge.core.ChatRouter;
 import com.guildbridge.core.LoopGuard;
+import com.guildbridge.core.OutgoingSanitizer;
+import com.guildbridge.core.ProfanityFilter;
 import com.guildbridge.core.WebhookPayload;
+import com.guildbridge.core.WelcomeTracker;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -11,38 +18,76 @@ import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Entry point. Thin glue: chat event in, core logic, webhook out. */
+/** Entry point. Thin glue: chat event in, core logic, webhook and game commands out. */
 public class GuildBridgeClient implements ClientModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger("guildbridge");
 
-    private WebhookSender sender;
+    private final ChatRouter router = new ChatRouter();
+    private BridgeConfig config;
+    private ProfanityFilter filter;
+    private WebhookSender webhook;
+    private GameSender game;
+    private WelcomeTracker welcomes;
     private LoopGuard guard;
 
     @Override
     public void onInitializeClient() {
-        BridgeConfig config = BridgeConfig.load(
-                FabricLoader.getInstance().getConfigDir().resolve("guildbridge.json"));
+        Path dir = FabricLoader.getInstance().getConfigDir();
+        config = BridgeConfig.load(dir.resolve("guildbridge.json"));
         if (config.webhookUrl == null || config.webhookUrl.isBlank()) {
             LOG.warn("No webhookUrl in config/guildbridge.json, bridge is disabled");
             return;
         }
-        sender = new WebhookSender(config.webhookUrl);
+        filter = loadFilter(dir.resolve("guildbridge-filter.txt"), config.filterThreshold);
+        webhook = new WebhookSender(config.webhookUrl);
+        game = new GameSender(config.gameSendGapMillis);
+        try {
+            welcomes = new WelcomeTracker(dir.resolve("guildbridge-welcomed.txt"));
+        } catch (IOException e) {
+            LOG.error("Could not read welcomed list, welcomes disabled: {}", e.toString());
+        }
 
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             if (overlay) return; // action bar text, not chat
-            ChatParser.parse(message.getString())
-                    .filter(this::shouldRelay)
-                    .map(WebhookPayload::forEvent)
-                    .ifPresent(sender::send);
+            for (BridgeEvent event : router.accept(message.getString())) handle(event);
         });
         LOG.info("Guild Bridge ready");
     }
 
-    private boolean shouldRelay(BridgeEvent event) {
+    private void handle(BridgeEvent event) {
         if (guard == null) {
             // The account name is only known once the client is up.
             guard = new LoopGuard(Minecraft.getInstance().getUser().getName());
         }
-        return guard.shouldRelay(event);
+        if (!guard.shouldRelay(event)) return;
+
+        webhook.send(WebhookPayload.forEvent(event, filter));
+
+        if (event instanceof BridgeEvent.Announcement a && a.joinedMember() != null) {
+            welcome(a.joinedMember());
+        }
+    }
+
+    private void welcome(String name) {
+        if (!config.welcomeEnabled || welcomes == null) return;
+        try {
+            if (welcomes.firstTime(name)) {
+                game.queue(OutgoingSanitizer.welcomeCommand(config.welcomeMessage, name));
+            }
+        } catch (IOException e) {
+            LOG.warn("Could not save welcomed list: {}", e.toString());
+        }
+    }
+
+    /** Uses config/guildbridge-filter.txt if present, otherwise the list bundled in the jar. */
+    private static ProfanityFilter loadFilter(Path custom, int threshold) {
+        if (Files.exists(custom)) {
+            try {
+                return new ProfanityFilter(Files.newBufferedReader(custom, StandardCharsets.UTF_8), threshold);
+            } catch (IOException | RuntimeException e) {
+                LOG.error("Bad custom filter list, using bundled one: {}", e.toString());
+            }
+        }
+        return ProfanityFilter.bundled(threshold);
     }
 }

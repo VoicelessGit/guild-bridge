@@ -9,6 +9,7 @@ public final class LoopGuard {
     }
 
     public boolean shouldRelay(BridgeEvent event) {
-        return ownIgn == null || !event.name().equalsIgnoreCase(ownIgn);
+        String name = event.name();
+        return ownIgn == null || name == null || !name.equalsIgnoreCase(ownIgn);
     }
 }

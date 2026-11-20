@@ -1,0 +1,46 @@
+# Guild Bridge word filter.  Format: word severity
+#   1 = mild, NOT censored at the default threshold (2)
+#   2 = strong profanity, censored
+#   3 = slurs and hate terms, censored
+# Matching already handles caps, leetspeak (sh1t, $hit), stretched letters (shiiit)
+# and the suffixes s/es/ed/er/ers/ing/y. List base words only.
+#
+# To override without rebuilding, put your own list at config/guildbridge-filter.txt.
+#
+# TODO (Justin): add the severity 3 tier. Pull slurs and hate terms from a maintained list,
+# for example the LDNOOBW English list on GitHub, and tag each one 3.
+
+# --- 1: mild (ignored by default) ---
+damn 1
+hell 1
+crap 1
+ass 1
+piss 1
+bloody 1
+bollocks 1
+
+# --- 2: strong profanity ---
+fuck 2
+fuk 2
+fck 2
+motherfucker 2
+shit 2
+bullshit 2
+bitch 2
+asshole 2
+arsehole 2
+bastard 2
+cunt 2
+dick 2
+dickhead 2
+cock 2
+pussy 2
+prick 2
+twat 2
+wanker 2
+whore 2
+slut 2
+jackass 2
+dumbass 2
+
+# --- 3: slurs and hate terms ---
