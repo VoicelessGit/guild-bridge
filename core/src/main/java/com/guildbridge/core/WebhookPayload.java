@@ -68,7 +68,8 @@ public final class WebhookPayload {
     }
 
     private static String describe(String text, ProfanityFilter filter) {
-        String s = escapeMarkdown(filter == null ? text : filter.censor(text));
+        String linkFree = LinkFilter.block(text);
+        String s = escapeMarkdown(filter == null ? linkFree : filter.censor(linkFree));
         return s.length() <= DESCRIPTION_LIMIT ? s : s.substring(0, DESCRIPTION_LIMIT - 1) + "…";
     }
 

@@ -61,6 +61,11 @@ Discord to game (phase 2, not built yet):
   `config/guildbridge-filter.txt`. The severity 3 tier is EMPTY and must be filled by Justin
   from a maintained list. Do not generate slur lists.
 - Censored words become asterisks of the same length.
+- `LinkFilter` replaces links with `[blocked link]` in BOTH directions, always on (URLs, www.,
+  bare domains on common TLDs, IPv4 with port). Runs before the profanity filter. It is wired into
+  `WebhookPayload` and `OutgoingSanitizer`, so new code paths get it by using those.
+- Phase 2: Discord attachments, stickers and embeds must not be relayed (they are links in disguise).
+  Send the text only, or `[attachment]` if there is no text.
 
 ## Discord channel setup (manual, not code)
 

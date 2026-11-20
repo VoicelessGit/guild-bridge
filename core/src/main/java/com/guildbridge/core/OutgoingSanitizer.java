@@ -13,8 +13,8 @@ public final class OutgoingSanitizer {
      * Returns null if nothing is left to send.
      */
     public static String toGuildCommand(String discordAuthor, String text) {
-        String author = clean(discordAuthor);
-        String body = clean(text);
+        String author = clean(LinkFilter.block(discordAuthor));
+        String body = clean(LinkFilter.block(text));
         if (body.isEmpty()) return null;
 
         // The leading slash counts toward the limit when the client sends it.
