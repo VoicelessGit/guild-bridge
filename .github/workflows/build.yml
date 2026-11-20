@@ -1,0 +1,26 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: Test core
+        run: ./gradlew :core:test
+      - name: Build mod
+        run: ./gradlew :mod:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guildbridge-jar
+          path: mod/build/libs/guildbridge-*.jar
+          if-no-files-found: error
