@@ -64,11 +64,20 @@ Discord to game:
    thread, skips repeats of the last 3 sends (`DuplicateGuard`; Hypixel rejects them anyway).
    On skip or full queue, the bot reacts with ❌ to the Discord message.
 
-Bot status (health light):
-- Online, "Bridging guild chat": connected to a server whose address contains hypixel.net.
-- Idle, "Not on Hypixel": game running, not on Hypixel (set on startup and on disconnect).
+Limbo check (`LimboTracker`, the bridge must always sit in limbo):
+- After every server join and world change (3 s delay) and every 10 minutes, if the server address
+  contains hypixel.net, send `/locraw` via `GameSender.queueUtility` (no repeat check).
+- The JSON reply (`{"server":"limbo"}` in limbo, per community knowledge; confirm in game) is
+  parsed by core `Locraw` and hidden from chat through `ClientReceiveMessageEvents.ALLOW_GAME`,
+  but only within 15 s of asking.
+- It never moves the player. Hypixel's AFK system moves idle lobby players to limbo by itself.
+  Relaying continues outside limbo; the status light and a channel notice flag it.
+
+Bot status (health light), set on every limbo state change, with a one-line notice in the channel:
+- Online, "In limbo, bridging guild chat".
+- Idle, "On Hypixel, not in limbo" (notice includes the server name).
+- Do Not Disturb, "Not on Hypixel" (startup and disconnect).
 - Offline: game closed (`jda.shutdown()` on `CLIENT_STOPPING`) or crashed (Discord times it out).
-- Online does not prove the client is in limbo or in the guild, only that it is on Hypixel.
 
 ## Moderation
 
@@ -115,7 +124,7 @@ Add every new real sample as a test case before changing a regex.
 
 ## Roadmap
 
-1. [x] core: parser, router, filters, duplicate guard, welcome tracker, embed builder (44 tests)
+1. [x] core: parser, router, filters, duplicate guard, welcome tracker, embed builder, locraw (49 tests)
 2. [ ] First real build. Targets Minecraft 26.2 (unobfuscated), Loader 0.19.3, Loom 1.17,
        Fabric API 0.155.2+26.2, JDA 6.5.0, Shadow 9.4.3, Gradle 9.5.1, Java 25. The mod code has
        NEVER been compiled. Expect to fix Fabric API names changed in 26.x (see the Fabric API
@@ -126,6 +135,13 @@ Add every new real sample as a test case before changing a regex.
 5. [ ] Disconnect detection, auto-reconnect after a delay, get back to limbo (verify in game which
        route works reliably; do not guess). Post "bridge offline/online" notices.
 6. [ ] Trial run in HeadlessMc (check it supports 26.2), watch memory with the Spark mod
+
+## Where it runs
+
+Everything is cross-platform. Justin plans to run it on his Mac (macOS) so his PC is free.
+Build with `./gradlew` on macOS too. For long runs on a Mac, prevent sleep (`caffeinate -dimsu`
+in a terminal, or System Settings power options); a closed MacBook lid sleeps unless an external
+display and power are connected.
 
 ## Conventions
 

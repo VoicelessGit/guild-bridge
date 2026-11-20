@@ -21,8 +21,8 @@ import net.dv8tion.jda.api.utils.messages.MessageRequest;
  * The Discord side: posts game events as embeds, relays channel messages into guild chat,
  * and uses its online status as a health light.
  *
- * <p>Status meanings: Online "Bridging guild chat" = connected to Hypixel.
- * Idle "Not on Hypixel" = game running but not on Hypixel. Offline = game closed or crashed.
+ * <p>Status meanings: Online = in Hypixel limbo and relaying. Idle = on Hypixel but NOT in limbo.
+ * Do Not Disturb = game running but not on Hypixel. Offline = game closed or crashed.
  */
 final class DiscordBot extends ListenerAdapter {
     private final JDA jda;
@@ -41,7 +41,7 @@ final class DiscordBot extends ListenerAdapter {
         // build() connects in the background, so this never blocks the game.
         this.jda = JDABuilder.createLight(token,
                         GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT)
-                .setStatus(OnlineStatus.IDLE)
+                .setStatus(OnlineStatus.DO_NOT_DISTURB)
                 .setActivity(Activity.customStatus("Not on Hypixel"))
                 .addEventListeners(this)
                 .build();
@@ -58,11 +58,14 @@ final class DiscordBot extends ListenerAdapter {
                 .queue(null, err -> GuildBridgeClient.LOG.warn("Discord send failed: {}", err.toString()));
     }
 
-    void setOnHypixel(boolean onHypixel) {
-        if (onHypixel) {
-            jda.getPresence().setPresence(OnlineStatus.ONLINE, Activity.customStatus("Bridging guild chat"));
-        } else {
-            jda.getPresence().setPresence(OnlineStatus.IDLE, Activity.customStatus("Not on Hypixel"));
+    void setState(LimboTracker.State state) {
+        switch (state) {
+            case IN_LIMBO -> jda.getPresence().setPresence(
+                    OnlineStatus.ONLINE, Activity.customStatus("In limbo, bridging guild chat"));
+            case ON_HYPIXEL_NOT_LIMBO -> jda.getPresence().setPresence(
+                    OnlineStatus.IDLE, Activity.customStatus("On Hypixel, not in limbo"));
+            case NOT_ON_HYPIXEL -> jda.getPresence().setPresence(
+                    OnlineStatus.DO_NOT_DISTURB, Activity.customStatus("Not on Hypixel"));
         }
     }
 

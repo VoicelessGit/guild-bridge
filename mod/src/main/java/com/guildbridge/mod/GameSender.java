@@ -15,7 +15,7 @@ import net.minecraft.client.Minecraft;
 final class GameSender {
     private static final int MAX_QUEUED = 20;
 
-    private record Pending(String command, Runnable onRejected) {}
+    private record Pending(String command, Runnable onRejected, boolean checkRepeats) {}
 
     private final BlockingQueue<Pending> queue = new ArrayBlockingQueue<>(MAX_QUEUED);
     private final DuplicateGuard duplicates = new DuplicateGuard(3);
@@ -38,8 +38,19 @@ final class GameSender {
      * or skipped as a repeat, so the Discord side can react with an X.
      */
     void queue(String command, Runnable onRejected) {
+        offer(new Pending(command, onRejected, true));
+    }
+
+    /** For utility commands like "locraw" that may repeat; skips the repeat check. */
+    void queueUtility(String command) {
+        offer(new Pending(command, null, false));
+    }
+
+    private void offer(Pending p) {
+        String command = p.command();
+        Runnable onRejected = p.onRejected();
         if (command == null) return;
-        if (!queue.offer(new Pending(command, onRejected))) {
+        if (!queue.offer(p)) {
             GuildBridgeClient.LOG.warn("Game send queue full, dropped: {}", command);
             reject(onRejected);
         }
@@ -48,7 +59,7 @@ final class GameSender {
     private void sendNext() {
         Pending p = queue.poll();
         if (p == null) return;
-        if (!duplicates.tryRecord(p.command())) {
+        if (p.checkRepeats() && !duplicates.tryRecord(p.command())) {
             GuildBridgeClient.LOG.info("Skipped repeat of a recent message: {}", p.command());
             reject(p.onRejected());
             return;

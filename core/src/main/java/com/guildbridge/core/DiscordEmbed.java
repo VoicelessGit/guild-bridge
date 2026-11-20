@@ -60,6 +60,17 @@ public final class DiscordEmbed {
         return embed.toString();
     }
 
+    /** A bridge status notice written by the mod itself (not player text, so not filtered). */
+    public static String notice(String text, boolean good) {
+        JsonObject embed = new JsonObject();
+        embed.addProperty("description", escapeMarkdown(text));
+        embed.addProperty("color", good ? NOTICE_GOOD : NOTICE_BAD);
+        return embed.toString();
+    }
+
+    static final int NOTICE_GOOD = 0x55FF55;
+    static final int NOTICE_BAD = 0xFF5555;
+
     private static String describe(String text, ProfanityFilter filter) {
         String linkFree = LinkFilter.block(text);
         String s = escapeMarkdown(filter == null ? linkFree : filter.censor(linkFree));
