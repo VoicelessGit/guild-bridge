@@ -71,8 +71,11 @@ Limbo check (`LimboTracker`, the bridge must always sit in limbo):
 - The JSON reply (`{"server":"limbo"}` in limbo, per community knowledge; confirm in game) is
   parsed by core `Locraw` and hidden from chat through `ClientReceiveMessageEvents.ALLOW_GAME`, world changes via `ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE` (renamed from ClientWorldEvents in 26.1),
   but only within 15 s of asking.
-- It never moves the player. Hypixel's AFK system moves idle lobby players to limbo by itself.
-  Relaying continues outside limbo; the status light and a channel notice flag it.
+- Auto-limbo (config `autoLimbo`, default true; `autoLimboDelaySeconds`, default 5): when a locraw
+  reply says not in limbo, send `/limbo` after the delay. Attempts at least 30 s apart; if too soon,
+  it reschedules for when the gap ends. A check 10 s after each attempt catches a /limbo that did
+  nothing. Note: `!mc /lobby` will be undone after 5 s while this is on. Hypixel's AFK system is
+  the fallback. Relaying continues outside limbo; the status light and a channel notice flag it.
 
 Bot status (health light), set on every limbo state change, with a one-line notice in the channel:
 - Online, "In limbo, bridging guild chat".

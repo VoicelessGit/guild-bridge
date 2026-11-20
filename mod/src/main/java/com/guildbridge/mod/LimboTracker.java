@@ -13,8 +13,9 @@ import net.minecraft.client.multiplayer.ServerData;
  * Knows whether the client is in Hypixel limbo by asking /locraw after every world change
  * and every few minutes as a safety net. The reply is hidden from chat.
  *
- * <p>It does NOT move the player. Getting into limbo is left to Hypixel's own AFK system,
- * which moves idle players from lobbies to limbo. That keeps the client's behavior normal.
+ * <p>If autoLimbo is on, whenever a /locraw reply says the client is on Hypixel but not in
+ * limbo, it sends /limbo after a short delay (default 5 s). Attempts are at least 30 s apart,
+ * so a failing /limbo can never turn into spam. Hypixel's AFK system is the fallback.
  */
 final class LimboTracker {
     enum State { NOT_ON_HYPIXEL, ON_HYPIXEL_NOT_LIMBO, IN_LIMBO }
@@ -22,9 +23,13 @@ final class LimboTracker {
     private static final long CHECK_DELAY_SECONDS = 3;    // let the new world settle first
     private static final long PERIODIC_MINUTES = 10;
     private static final long REPLY_WINDOW_MILLIS = 15_000;
+    private static final long LIMBO_MIN_GAP_MILLIS = 30_000;
 
     private final GameSender game;
     private final Consumer<State> onChange;
+    private final boolean autoLimbo;
+    private final long autoLimboDelayMillis;
+    private volatile long lastLimboAttempt;
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "guildbridge-limbo");
         t.setDaemon(true);
@@ -36,9 +41,11 @@ final class LimboTracker {
     private volatile String lastServer;
     private volatile long stateSince = System.currentTimeMillis();
 
-    LimboTracker(GameSender game, Consumer<State> onChange) {
+    LimboTracker(GameSender game, Consumer<State> onChange, boolean autoLimbo, long autoLimboDelayMillis) {
         this.game = game;
         this.onChange = onChange;
+        this.autoLimbo = autoLimbo;
+        this.autoLimboDelayMillis = autoLimboDelayMillis;
         timer.scheduleWithFixedDelay(this::check, PERIODIC_MINUTES, PERIODIC_MINUTES, TimeUnit.MINUTES);
     }
 
@@ -74,8 +81,40 @@ final class LimboTracker {
         if (info.isEmpty()) return true;
         awaitingReplyUntil = 0;
         lastServer = info.get().server();
-        set(info.get().inLimbo() ? State.IN_LIMBO : State.ON_HYPIXEL_NOT_LIMBO);
+        boolean inLimbo = info.get().inLimbo();
+        set(inLimbo ? State.IN_LIMBO : State.ON_HYPIXEL_NOT_LIMBO);
+        if (!inLimbo) scheduleLimbo();
         return false;
+    }
+
+    boolean autoLimbo() {
+        return autoLimbo;
+    }
+
+    long autoLimboDelayMillis() {
+        return autoLimboDelayMillis;
+    }
+
+    /** Sends /limbo after the delay, if still not in limbo. Attempts stay at least 30 s apart. */
+    private void scheduleLimbo() {
+        if (!autoLimbo) return;
+        timer.schedule(this::attemptLimbo, autoLimboDelayMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private void attemptLimbo() {
+        if (state != State.ON_HYPIXEL_NOT_LIMBO) return;
+        long wait = LIMBO_MIN_GAP_MILLIS - (System.currentTimeMillis() - lastLimboAttempt);
+        if (wait > 0) {
+            // Too soon after the last try: try again once the gap has passed, not 10 minutes later.
+            timer.schedule(this::attemptLimbo, wait, TimeUnit.MILLISECONDS);
+            return;
+        }
+        lastLimboAttempt = System.currentTimeMillis();
+        GuildBridgeClient.LOG.info("Not in limbo (server: {}), sending /limbo", lastServer);
+        game.queueUtility("limbo");
+        // Moving to limbo is a world change, which triggers a fresh /locraw by itself.
+        // This extra check catches the case where /limbo did nothing.
+        timer.schedule(this::check, 10, TimeUnit.SECONDS);
     }
 
     private void check() {

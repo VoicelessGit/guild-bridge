@@ -28,6 +28,10 @@ final class BridgeConfig {
     // Set to "mc.hypixel.net" for the headless bridge.
     String autoJoinServer = "";
 
+    // Send /limbo automatically when on Hypixel but not in limbo, after this many seconds.
+    boolean autoLimbo = true;
+    int autoLimboDelaySeconds = 5;
+
     // Gap between messages the bot sends in game, in milliseconds.
     long gameSendGapMillis = 1500;
 

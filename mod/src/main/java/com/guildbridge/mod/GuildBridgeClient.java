@@ -76,7 +76,8 @@ public class GuildBridgeClient implements ClientModInitializer {
             return;
         }
 
-        limbo = new LimboTracker(game, this::limboChanged);
+        limbo = new LimboTracker(game, this::limboChanged,
+                config.autoLimbo, Math.max(1, config.autoLimboDelaySeconds) * 1000L);
 
         // Hide our own /locraw replies from chat before anything else sees them.
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) ->
@@ -195,8 +196,10 @@ public class GuildBridgeClient implements ClientModInitializer {
         bot.setState(state);
         String text = switch (state) {
             case IN_LIMBO -> "Bridge is in limbo and relaying.";
-            case ON_HYPIXEL_NOT_LIMBO -> "Bridge is on Hypixel but NOT in limbo (server: "
-                    + limbo.lastServer() + "). Hypixel's AFK system should move it to limbo within a few minutes.";
+            case ON_HYPIXEL_NOT_LIMBO -> "Bridge is on Hypixel but NOT in limbo (server: " + limbo.lastServer() + "). "
+                    + (limbo.autoLimbo()
+                        ? "Sending /limbo in " + limbo.autoLimboDelayMillis() / 1000 + " s."
+                        : "Hypixel's AFK system should move it to limbo within a few minutes.");
             case NOT_ON_HYPIXEL -> "Bridge is not connected to Hypixel.";
         };
         bot.post(DiscordEmbed.notice(text, state == LimboTracker.State.IN_LIMBO));
