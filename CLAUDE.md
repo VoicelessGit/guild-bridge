@@ -81,7 +81,11 @@ Still unverified, collect real samples before relying on them:
 - `Guild > Name joined.` / `Guild > Name left.` (online status)
 - `Officer > ...` (officer chat)
 - `[MVP++]`, `[YOUTUBE]`, staff ranks
-- Guild announcement blocks: separator style, and exact wording of join, leave, kick, promote,
+- VERIFIED from the joining account's side (Nov 2026): blocks sit between cyan strikethrough bars.
+  `You were kicked from the guild by [VIP+] X for reason 'test'.` (becomes a "bridge kicked" notice),
+  `[VIP+] X has invited you to join their guild, NAME!` + `Click here to accept or type /guild accept X!`
+  (ignored), `You joined NAME!` (ignored). Any block starting with "You " is about the bridge itself.
+- STILL NEEDED from a member who stays in the guild: exact wording of join, leave, kick, promote,
   demote, level up, quest tier. `ChatRouter` currently guesses `[VIP] Name joined the guild!`
   between lines of 10+ dashes or underscores. Justin will send real samples.
 

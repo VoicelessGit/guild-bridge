@@ -53,6 +53,12 @@ public final class ChatRouter {
         block = null;
         if (lines.isEmpty()) return;
         String text = String.join("\n", lines);
+        // Blocks written in second person are about the bridge account itself (verified Nov 2026).
+        if (text.startsWith("You were kicked from the guild")) {
+            out.add(new BridgeEvent.Announcement("The bridge account was kicked from the guild.", null));
+            return;
+        }
+        if (text.startsWith("You ")) return;
         if (!text.toLowerCase(Locale.ROOT).contains("guild")) return;
         if (NOT_ANNOUNCEMENT.matcher(text).find()) return;
 

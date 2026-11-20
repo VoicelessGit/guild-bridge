@@ -134,6 +134,37 @@ class FeaturesTest {
         assertEquals("\\*\\*\\*\\* yeah", json.get("content").getAsString());
     }
 
+    // --- Real samples from the joining account's side, screenshot Nov 2026 ---
+
+    @Test
+    void realInviteToBridgeAccountIsIgnored() {
+        var r = new ChatRouter();
+        assertTrue(r.accept(SEP + "\n[VIP+] ExamplePlayer has invited you to join their guild, testing testing 123!\n"
+                + "Click here to accept or type /guild accept ExamplePlayer!\n" + SEP).isEmpty());
+    }
+
+    @Test
+    void realBridgeJoinedGuildIsIgnored() {
+        assertTrue(new ChatRouter().accept(SEP + "\nYou joined testing testing 123!\n" + SEP).isEmpty());
+    }
+
+    @Test
+    void realBridgeKickedBecomesStatusNotice() {
+        var events = new ChatRouter().accept(
+                SEP + "\nYou were kicked from the guild by [VIP+] ExamplePlayer for reason 'test'.\n" + SEP);
+        var a = assertInstanceOf(BridgeEvent.Announcement.class, single(events));
+        assertEquals("The bridge account was kicked from the guild.", a.text());
+        assertNull(a.joinedMember());
+    }
+
+    @Test
+    void realLobbyJoinBetweenBlocksIsIgnored() {
+        var r = new ChatRouter();
+        assertTrue(r.accept(SEP + "\nYou joined testing testing 123!\n" + SEP).isEmpty());
+        assertTrue(r.accept("[MVP+] Luckiy joined the lobby!").isEmpty());
+        assertTrue(r.accept("[MVP+] wiwouu joined the lobby!").isEmpty());
+    }
+
     private static BridgeEvent single(List<BridgeEvent> events) {
         assertEquals(1, events.size(), "events: " + events);
         return events.get(0);
