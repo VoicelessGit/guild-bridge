@@ -27,6 +27,9 @@ final class BridgeConfig {
     // Server to join automatically from the title screen and after disconnects ("" = off).
     // Set to "mc.hypixel.net" for the headless bridge.
     String autoJoinServer = "";
+    // Retry delay after a failed join: starts here and doubles each failure, up to the max.
+    int autoJoinRetrySeconds = 10;
+    int autoJoinMaxRetrySeconds = 300;
 
     // Send /limbo automatically when on Hypixel but not in limbo, after this many seconds.
     boolean autoLimbo = true;

@@ -84,12 +84,13 @@ Bot status (health light), set on every limbo state change, with a one-line noti
 - Offline: game closed (`jda.shutdown()` on `CLIENT_STOPPING`) or crashed (Discord times it out).
 
 Auto-join (`AutoJoin`, for headless runs):
-- `autoJoinServer` in config ("" = off; "mc.hypixel.net" for the bridge). Screen-independent
-  (the screen-based version never fired under HeadlessMc): after `CLIENT_STARTED` + 10 s, whenever
-  `level == null && getConnection() == null`, call `ConnectScreen.startConnecting`. At least 60 s
-  between attempts so a slow connect is never doubled; backoff 60 s, 2, 4, 8, max 10 min; reset on
-  join. Logs "Auto-join is ON/OFF" at startup. `Minecraft.screen` and `getOverlay()` are not
-  accessible in 26.x; the open screen is tracked via Fabric `ScreenEvents` only as the parent.
+- `autoJoinServer` in config ("" = off; "mc.hypixel.net" for the bridge). Screen-independent:
+  after `CLIENT_STARTED` + 5 s, whenever `level == null && getConnection() == null` and the tracked
+  screen is not a `ConnectScreen` (attempt in progress), call `ConnectScreen.startConnecting`.
+  Retry delay starts at `autoJoinRetrySeconds` (10) and doubles per failure up to
+  `autoJoinMaxRetrySeconds` (300); 5 s hard floor; reset on join. Logs "Auto-join is ON/OFF".
+  `Minecraft.screen` and `getOverlay()` are not accessible in 26.x; screens are tracked via Fabric
+  `ScreenEvents`.
 
 Bot commands (core `BotCommand`, typed in the bridge channel, never relayed):
 - Members (anyone in the channel): `!commands`, `!g online`, `!g top`, `!g top <1-10>`.

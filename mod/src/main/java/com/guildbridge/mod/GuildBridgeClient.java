@@ -94,7 +94,7 @@ public class GuildBridgeClient implements ClientModInitializer {
                 handle(event);
             }
         });
-        autoJoin = new AutoJoin(config.autoJoinServer);
+        autoJoin = new AutoJoin(config.autoJoinServer, config.autoJoinRetrySeconds, config.autoJoinMaxRetrySeconds);
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> autoJoin.screenOpened(screen));
         ClientTickEvents.END_CLIENT_TICK.register(client -> autoJoin.tick(client));
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> autoJoin.clientStarted());
