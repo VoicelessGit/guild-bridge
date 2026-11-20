@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "guildbridge",
+  "version": "${version}",
+  "name": "Guild Bridge",
+  "description": "Relays Hypixel guild chat to a Discord channel.",
+  "authors": ["Justin Peters"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.guildbridge.mod.GuildBridgeClient"]
+  },
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=21"
+  }
+}

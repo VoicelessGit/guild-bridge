@@ -1,0 +1,29 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base { archivesName = 'guildbridge' }
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+
+// Compile core's sources straight into the mod jar. Simpler than jar-in-jar for a plain library.
+sourceSets.main.java.srcDir '../core/src/main/java'
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    // Mojang names (Minecraft, Component), which carry over to 26.x where Yarn is retired.
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+}
+
+processResources {
+    def props = [version: version, loader_version: loader_version, minecraft_version: minecraft_version]
+    inputs.properties props
+    filesMatching('fabric.mod.json') { expand props }
+}
