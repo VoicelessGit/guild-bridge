@@ -78,6 +78,7 @@ public class GuildBridgeClient implements ClientModInitializer {
         autoJoin = new AutoJoin(config.autoJoinServer);
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> autoJoin.screenOpened(screen));
         ClientTickEvents.END_CLIENT_TICK.register(client -> autoJoin.tick(client));
+        ClientLifecycleEvents.CLIENT_STARTED.register(client -> autoJoin.clientStarted());
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             autoJoin.joined();
             limbo.worldChanged();

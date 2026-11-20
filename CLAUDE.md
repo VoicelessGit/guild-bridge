@@ -80,9 +80,12 @@ Bot status (health light), set on every limbo state change, with a one-line noti
 - Offline: game closed (`jda.shutdown()` on `CLIENT_STOPPING`) or crashed (Discord times it out).
 
 Auto-join (`AutoJoin`, for headless runs):
-- `autoJoinServer` in config ("" = off; "mc.hypixel.net" for the bridge). On the title,
-  disconnected or multiplayer screen, connect via `ConnectScreen.startConnecting`. First try 10 s
-  after startup, then backoff 30 s, 1, 2, 4, 8, max 10 min; reset on successful join.
+- `autoJoinServer` in config ("" = off; "mc.hypixel.net" for the bridge). Screen-independent
+  (the screen-based version never fired under HeadlessMc): after `CLIENT_STARTED` + 10 s, whenever
+  `level == null && getConnection() == null`, call `ConnectScreen.startConnecting`. At least 60 s
+  between attempts so a slow connect is never doubled; backoff 60 s, 2, 4, 8, max 10 min; reset on
+  join. Logs "Auto-join is ON/OFF" at startup. `Minecraft.screen` and `getOverlay()` are not
+  accessible in 26.x; the open screen is tracked via Fabric `ScreenEvents` only as the parent.
 
 Admin console (in the bridge channel, never relayed):
 - `config/guildbridge-admins.txt`: Discord user IDs, one per line, # comments. Created with

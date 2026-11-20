@@ -3,36 +3,48 @@ package com.guildbridge.mod;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConnectScreen;
-import net.minecraft.client.gui.screens.DisconnectedScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
-import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.resolver.ServerAddress;
 
 /**
- * Joins the configured server from the title screen, and rejoins after a disconnect.
- * Waits between attempts and backs off (30 s, 1, 2, 4, 8, then 10 min max) so a kick or an
- * outage never turns into rapid reconnect spam. Off when autoJoinServer is blank.
+ * Joins the configured server once the game has started, and rejoins after a disconnect.
+ *
+ * <p>It does not depend on which screen is showing (headless clients may never show a normal
+ * title screen). It only checks "not in a world and no connection". After each attempt it waits
+ * at least 60 s before trying again, which is longer than a connection takes, so it never starts
+ * a second attempt while the first is still connecting. Backoff: 60 s, 2, 4, 8, then 10 min max.
+ * Off when autoJoinServer is blank.
  */
 final class AutoJoin {
     private static final long FIRST_DELAY_MILLIS = 10_000;
-    private static final long BASE_DELAY_MILLIS = 30_000;
+    private static final long BASE_DELAY_MILLIS = 60_000;
     private static final long MAX_DELAY_MILLIS = 600_000;
 
     private final String address;
-    /** The open screen, tracked through Fabric's ScreenEvents (Minecraft's own field is not public in 26.x). */
+    /** Best-effort: the open screen, used only as the "back" screen for the connect screen. */
     private volatile Screen currentScreen;
+    private volatile boolean started;
     private long nextAttemptAt;
     private int failures;
 
     AutoJoin(String address) {
         this.address = address == null ? "" : address.strip();
-        this.nextAttemptAt = System.currentTimeMillis() + FIRST_DELAY_MILLIS;
+        GuildBridgeClient.LOG.info(enabled()
+                ? "Auto-join is ON for " + this.address
+                : "Auto-join is OFF (autoJoinServer is blank)");
     }
 
     boolean enabled() {
         return !address.isEmpty();
+    }
+
+    /** Call from ClientLifecycleEvents.CLIENT_STARTED. */
+    void clientStarted() {
+        started = true;
+        nextAttemptAt = System.currentTimeMillis() + FIRST_DELAY_MILLIS;
+        if (enabled()) GuildBridgeClient.LOG.info("Game started, first auto-join attempt in 10 s");
     }
 
     /** Call when a join succeeds, so the next disconnect starts with a short wait again. */
@@ -50,25 +62,24 @@ final class AutoJoin {
 
     /** Call from ClientTickEvents.END_CLIENT_TICK. */
     void tick(Minecraft mc) {
-        if (!enabled()) return;
-        // The startup delay covers the loading overlay, so no overlay check is needed.
-        if (mc.level != null || mc.getConnection() != null) return;
-        Screen screen = currentScreen;
-        boolean idle = screen instanceof TitleScreen
-                || screen instanceof DisconnectedScreen
-                || screen instanceof JoinMultiplayerScreen;
-        if (!idle) return; // already connecting, or a screen we should not interrupt
+        if (!enabled() || !started) return;
+        if (mc.level != null || mc.getConnection() != null) return; // connected or in a world
 
         long now = System.currentTimeMillis();
         if (now < nextAttemptAt) return;
 
-        long delay = Math.min(MAX_DELAY_MILLIS, BASE_DELAY_MILLIS << Math.min(failures, 5));
+        long delay = Math.min(MAX_DELAY_MILLIS, BASE_DELAY_MILLIS << Math.min(failures, 4));
         failures++;
         nextAttemptAt = now + delay;
 
         GuildBridgeClient.LOG.info("Auto-joining {} (attempt {}, next retry in {} s if this fails)",
                 address, failures, delay / 1000);
+        Screen parent = currentScreen != null ? currentScreen : new TitleScreen();
         ServerData data = new ServerData("Hypixel", address, ServerData.Type.OTHER);
-        ConnectScreen.startConnecting(screen, mc, ServerAddress.parseString(address), data, false, null);
+        try {
+            ConnectScreen.startConnecting(parent, mc, ServerAddress.parseString(address), data, false, null);
+        } catch (RuntimeException e) {
+            GuildBridgeClient.LOG.warn("Auto-join attempt failed to start: {}", e.toString());
+        }
     }
 }
