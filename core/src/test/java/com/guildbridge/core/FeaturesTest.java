@@ -165,6 +165,30 @@ class FeaturesTest {
         assertTrue(r.accept("[MVP+] wiwouu joined the lobby!").isEmpty());
     }
 
+    // --- Real samples from a member who stays in the guild, screenshot Nov 2026 ---
+
+    @Test
+    void realMemberJoinedGuildTriggersWelcome() {
+        var a = assertInstanceOf(BridgeEvent.Announcement.class,
+                single(new ChatRouter().accept(SEP + "\nBridgeBot joined the guild!\n" + SEP)));
+        assertEquals("BridgeBot", a.joinedMember());
+        assertEquals("BridgeBot joined the guild!", a.text());
+    }
+
+    @Test
+    void realMemberKickedIsRelayedWithoutWelcome() {
+        var a = assertInstanceOf(BridgeEvent.Announcement.class, single(new ChatRouter().accept(
+                SEP + "\nBridgeBot was kicked from the guild by [VIP+] ExamplePlayer!\n" + SEP)));
+        assertEquals("BridgeBot was kicked from the guild by [VIP+] ExamplePlayer!", a.text());
+        assertNull(a.joinedMember());
+    }
+
+    @Test
+    void realInviteConfirmationIsIgnored() {
+        assertTrue(new ChatRouter().accept(SEP
+                + "\nYou invited BridgeBot to your guild. They have 5 minutes to accept.\n" + SEP).isEmpty());
+    }
+
     private static BridgeEvent single(List<BridgeEvent> events) {
         assertEquals(1, events.size(), "events: " + events);
         return events.get(0);

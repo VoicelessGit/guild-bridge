@@ -85,7 +85,10 @@ Still unverified, collect real samples before relying on them:
   `You were kicked from the guild by [VIP+] X for reason 'test'.` (becomes a "bridge kicked" notice),
   `[VIP+] X has invited you to join their guild, NAME!` + `Click here to accept or type /guild accept X!`
   (ignored), `You joined NAME!` (ignored). Any block starting with "You " is about the bridge itself.
-- STILL NEEDED from a member who stays in the guild: exact wording of join, leave, kick, promote,
+- VERIFIED from a member who stays in the guild (Nov 2026): `BridgeBot joined the guild!` (no rank
+  shown for a non; welcome trigger), `BridgeBot was kicked from the guild by [VIP+] ExamplePlayer!`,
+  `You invited BridgeBot to your guild. They have 5 minutes to accept.` (ignored, starts with "You").
+- STILL NEEDED: a ranked player joining (is the rank shown?), leave, promote,
   demote, level up, quest tier. `ChatRouter` currently guesses `[VIP] Name joined the guild!`
   between lines of 10+ dashes or underscores. Justin will send real samples.
 
