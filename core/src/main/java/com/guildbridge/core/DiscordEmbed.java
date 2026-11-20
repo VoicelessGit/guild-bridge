@@ -60,6 +60,24 @@ public final class DiscordEmbed {
         return embed.toString();
     }
 
+    /**
+     * A reply to a member command, built from captured game chat (for example /g online).
+     * Shown in a code block so columns line up; links and profanity are still filtered.
+     */
+    public static String response(String title, String text, ProfanityFilter filter) {
+        JsonObject embed = new JsonObject();
+        embed.addProperty("title", title);
+        String body = LinkFilter.block(text);
+        if (filter != null) body = filter.censor(body);
+        body = body.replace("```", "'''");
+        if (body.isBlank()) body = "(no response from Hypixel)";
+        // 4096 description limit, minus the code fence.
+        if (body.length() > DESCRIPTION_LIMIT - 10) body = body.substring(0, DESCRIPTION_LIMIT - 11) + "…";
+        embed.addProperty("description", "```\n" + body + "\n```");
+        embed.addProperty("color", GUILD_GREEN);
+        return embed.toString();
+    }
+
     /** A bridge status notice written by the mod itself (not player text, so not filtered). */
     public static String notice(String text, boolean good) {
         JsonObject embed = new JsonObject();

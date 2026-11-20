@@ -1,0 +1,122 @@
+package com.guildbridge.core;
+
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Commands typed in the bridge channel. They are never relayed to guild chat.
+ *
+ * <p>Members (anyone in the channel): !commands, !g online, !g top [1-10].
+ * Admins (listed in guildbridge-admins.txt): everything above plus !say, !mc, !status, !uptime, !restart.
+ *
+ * <p>Security: nothing here ever reaches a shell. Each command maps to fixed Minecraft chat
+ * commands, or to admin-only text that goes through the same sanitizing as normal chat.
+ */
+public final class BotCommand {
+    public sealed interface Parsed {}
+
+    // Member commands
+    public record Commands() implements Parsed {}
+    public record GuildOnline() implements Parsed {}
+    /** day is null for plain "!g top". */
+    public record GuildTop(Integer day) implements Parsed {}
+
+    // Admin commands
+    public record Say(String text) implements Parsed {}
+    public record Run(String command) implements Parsed {}
+    public record Status() implements Parsed {}
+    public record Uptime() implements Parsed {}
+    public record Restart() implements Parsed {}
+
+    /** A known command used wrongly; message is the usage hint to show. */
+    public record Invalid(String message) implements Parsed {}
+
+    private static final Set<String> KNOWN = Set.of(
+            "commands", "g", "say", "mc", "status", "uptime", "restart");
+
+    private BotCommand() {}
+
+    /** True for anything that starts like one of our commands, so it is never relayed. */
+    public static boolean looksLikeCommand(String content) {
+        if (content == null) return false;
+        String s = content.strip();
+        if (!s.startsWith("!")) return false;
+        String word = s.substring(1).split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
+        return KNOWN.contains(word);
+    }
+
+    public static boolean requiresAdmin(Parsed p) {
+        return p instanceof Say || p instanceof Run || p instanceof Status
+                || p instanceof Uptime || p instanceof Restart;
+    }
+
+    /** Parses a message. Empty means it is not a command at all. */
+    public static Optional<Parsed> parse(String content) {
+        if (!looksLikeCommand(content)) return Optional.empty();
+        String[] parts = content.strip().substring(1).split("\\s+", 2);
+        String word = parts[0].toLowerCase(Locale.ROOT);
+        String rest = parts.length > 1 ? parts[1].strip() : "";
+
+        return Optional.of(switch (word) {
+            case "commands" -> new Commands();
+            case "status" -> new Status();
+            case "uptime" -> new Uptime();
+            case "restart" -> new Restart();
+            case "g" -> parseGuild(rest);
+            case "say" -> rest.isEmpty() ? new Invalid("Usage: `!say <message>`") : new Say(rest);
+            case "mc" -> parseRun(rest);
+            default -> new Invalid("Unknown command. Try `!commands`.");
+        });
+    }
+
+    private static Parsed parseGuild(String rest) {
+        String[] args = rest.toLowerCase(Locale.ROOT).split("\\s+");
+        if (args[0].equals("online") && args.length == 1) return new GuildOnline();
+        if (args[0].equals("top")) {
+            if (args.length == 1) return new GuildTop(null);
+            if (args.length == 2 && args[1].matches("\\d{1,2}")) {
+                int day = Integer.parseInt(args[1]);
+                if (day >= 1 && day <= 10) return new GuildTop(day);
+            }
+            return new Invalid("Usage: `!g top` or `!g top <1-10>`");
+        }
+        return new Invalid("Usage: `!g online`, `!g top` or `!g top <1-10>`");
+    }
+
+    private static Parsed parseRun(String rest) {
+        String cmd = TextUtil.stripFormatting(rest.replaceAll("[\\r\\n\\t]+", " ")).strip();
+        while (cmd.startsWith("/")) cmd = cmd.substring(1);
+        cmd = cmd.strip();
+        // 256 chat limit, minus the slash the client adds.
+        if (cmd.isEmpty() || cmd.length() > 255) return new Invalid("Usage: `!mc <command>`, e.g. `!mc /lobby`");
+        return new Run(cmd);
+    }
+
+    /** The Minecraft command (no slash) for a member guild command. */
+    public static String gameCommand(Parsed p) {
+        return switch (p) {
+            case GuildOnline g -> "g online";
+            case GuildTop t -> t.day() == null ? "g top" : "g top " + t.day();
+            case Run r -> r.command();
+            default -> throw new IllegalArgumentException("Not a game command: " + p);
+        };
+    }
+
+    /** Text for !commands. Both tiers are listed, separated. */
+    public static String helpText() {
+        return """
+                **Member commands**
+                `!commands` show this list
+                `!g online` who is online in the guild
+                `!g top` today's top guild experience
+                `!g top <1-10>` top guild experience from that many days ago
+
+                **Admin commands**
+                `!say <message>` send a message in guild chat as the bridge
+                `!mc <command>` run any Minecraft command, e.g. `!mc /lobby`
+                `!status` where the bridge is (limbo, lobby, offline)
+                `!uptime` how long the bridge has been running and connected
+                `!restart` restart the game (the launch script brings it back)""";
+    }
+}

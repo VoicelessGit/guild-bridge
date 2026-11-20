@@ -1,11 +1,11 @@
 package com.guildbridge.mod;
 
-import com.guildbridge.core.AdminCommand;
 import com.guildbridge.core.AdminList;
+import com.guildbridge.core.BotCommand;
+import com.guildbridge.core.DiscordEmbed;
 import com.guildbridge.core.OutgoingSanitizer;
 import com.guildbridge.core.ProfanityFilter;
 import java.util.EnumSet;
-import java.util.function.Supplier;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -22,28 +22,44 @@ import net.dv8tion.jda.api.utils.messages.MessageRequest;
 
 /**
  * The Discord side: posts game events as embeds, relays channel messages into guild chat,
- * and uses its online status as a health light.
+ * answers bot commands, and uses its online status as a health light.
  *
  * <p>Status meanings: Online = in Hypixel limbo and relaying. Idle = on Hypixel but NOT in limbo.
  * Do Not Disturb = game running but not on Hypixel. Offline = game closed or crashed.
+ *
+ * <p>Command tiers (see core BotCommand): members can use !commands, !g online, !g top [1-10];
+ * admins from guildbridge-admins.txt can also use !say, !mc, !status, !uptime, !restart.
  */
 final class DiscordBot extends ListenerAdapter {
+    /** What the bot needs from the rest of the mod. */
+    interface Control {
+        String status();
+        String uptime();
+        void restart();
+    }
+
+    /** Minimum gap between game commands from members (admins are exempt). */
+    private static final long MEMBER_COOLDOWN_MILLIS = 10_000;
+
     private final JDA jda;
     private final long channelId;
     private final GameSender game;
     private final ProfanityFilter filter;
     private final AdminList admins;
-    private final Supplier<String> status;
     private final String prefix;
+    private final CommandCapture capture;
+    private final Control control;
+    private volatile long lastMemberCommandAt;
 
     DiscordBot(String token, String channelId, GameSender game, ProfanityFilter filter,
-               AdminList admins, Supplier<String> status, String prefix) {
+               AdminList admins, String prefix, CommandCapture capture, Control control) {
         this.channelId = Long.parseLong(channelId.strip());
         this.game = game;
         this.filter = filter;
         this.admins = admins;
-        this.status = status;
         this.prefix = prefix == null ? "" : prefix;
+        this.capture = capture;
+        this.control = control;
 
         // Nothing the bot sends may ping @everyone, roles or users.
         MessageRequest.setDefaultMentions(EnumSet.noneOf(Message.MentionType.class));
@@ -90,10 +106,11 @@ final class DiscordBot extends ListenerAdapter {
         if (event.getAuthor().isBot() || event.isWebhookMessage()) return;
 
         Message msg = event.getMessage();
-        if (AdminCommand.looksLikeCommand(msg.getContentRaw())) {
-            handleAdmin(event, msg);
-            return; // admin commands are never relayed to guild chat
+        if (BotCommand.looksLikeCommand(msg.getContentRaw())) {
+            handleCommand(event, msg);
+            return; // commands are never relayed to guild chat
         }
+
         String text = OutgoingSanitizer.discordText(
                 msg.getContentDisplay(), msg.getAttachments().size(), msg.getStickers().size());
         String name = event.getMember() != null
@@ -101,26 +118,84 @@ final class DiscordBot extends ListenerAdapter {
                 : event.getAuthor().getEffectiveName();
 
         String cmd = OutgoingSanitizer.toGuildCommand(name, text, filter, prefix);
-        game.queue(cmd, () -> msg.addReaction(Emoji.fromUnicode("❌")).queue(null, err -> {}));
+        game.queue(cmd, () -> react(msg, "❌"));
     }
 
-    private void handleAdmin(MessageReceivedEvent event, Message msg) {
-        if (!admins.isAdmin(event.getAuthor().getId())) {
-            msg.addReaction(Emoji.fromUnicode("⛔")).queue(null, err -> {});
+    private void handleCommand(MessageReceivedEvent event, Message msg) {
+        var parsed = BotCommand.parse(msg.getContentRaw());
+        if (parsed.isEmpty()) return;
+        BotCommand.Parsed p = parsed.get();
+        boolean admin = admins.isAdmin(event.getAuthor().getId());
+
+        if (BotCommand.requiresAdmin(p) && !admin) {
+            react(msg, "⛔");
             return;
         }
-        var parsed = AdminCommand.parse(msg.getContentRaw());
-        if (parsed.isEmpty()) {
-            msg.reply("Usage: `!mc <command>` (for example `!mc /lobby`) or `!status`").queue(null, err -> {});
-            return;
+        if (admin && BotCommand.requiresAdmin(p)) {
+            GuildBridgeClient.LOG.info("Admin {} used {}", event.getAuthor().getName(), msg.getContentRaw());
         }
-        switch (parsed.get()) {
-            case AdminCommand.Status s -> msg.reply(status.get()).queue(null, err -> {});
-            case AdminCommand.Run r -> {
-                GuildBridgeClient.LOG.info("Admin {} ran /{}", event.getAuthor().getName(), r.command());
-                game.queueUtility(r.command());
-                msg.addReaction(Emoji.fromUnicode("✅")).queue(null, err -> {});
+
+        switch (p) {
+            case BotCommand.Invalid i -> reply(msg, i.message());
+            case BotCommand.Commands c -> msg.replyEmbeds(new EmbedBuilder()
+                    .setTitle("Bridge commands")
+                    .setDescription(BotCommand.helpText())
+                    .setColor(0x00AA00)
+                    .build()).queue(null, err -> {});
+            case BotCommand.Status s -> reply(msg, control.status());
+            case BotCommand.Uptime u -> reply(msg, control.uptime());
+            case BotCommand.Restart r -> {
+                reply(msg, "Restarting the game now. If it was started with the launch script, "
+                        + "it comes back in about 30 seconds and rejoins Hypixel.");
+                control.restart();
             }
+            case BotCommand.Say s -> {
+                // Admin text as the bridge itself: no name, no prefix, still link- and profanity-filtered.
+                String cmd = OutgoingSanitizer.toGuildCommand("", s.text(), filter, "");
+                if (cmd == null) {
+                    reply(msg, "Nothing left to send after filtering.");
+                    return;
+                }
+                game.queue(cmd, () -> react(msg, "❌"));
+                react(msg, "✅");
+            }
+            case BotCommand.GuildOnline g -> runAndReply(msg, p, "Guild online", admin);
+            case BotCommand.GuildTop t -> runAndReply(msg, p,
+                    t.day() == null ? "Guild top (today)" : "Guild top (" + t.day() + " days ago)", admin);
+            case BotCommand.Run r -> runAndReply(msg, p, "/" + r.command(), admin);
         }
+    }
+
+    /** Runs a game command, captures what the game says back, and replies with it. */
+    private void runAndReply(Message msg, BotCommand.Parsed p, String title, boolean admin) {
+        long now = System.currentTimeMillis();
+        if (!admin && now - lastMemberCommandAt < MEMBER_COOLDOWN_MILLIS) {
+            react(msg, "⏳"); // cooldown, try again in a few seconds
+            return;
+        }
+        if (!capture.reserve()) {
+            react(msg, "⏳"); // another command is still running
+            return;
+        }
+        if (!admin) lastMemberCommandAt = now;
+
+        react(msg, "👀");
+        game.queueUtility(BotCommand.gameCommand(p),
+                () -> capture.begin(text -> msg.replyEmbeds(
+                                EmbedBuilder.fromData(DataObject.fromJson(DiscordEmbed.response(title, text, filter)))
+                                        .build())
+                        .queue(null, err -> {})),
+                () -> {
+                    capture.cancel();
+                    react(msg, "❌");
+                });
+    }
+
+    private static void reply(Message msg, String text) {
+        msg.reply(text).queue(null, err -> {});
+    }
+
+    private static void react(Message msg, String emoji) {
+        msg.addReaction(Emoji.fromUnicode(emoji)).queue(null, err -> {});
     }
 }

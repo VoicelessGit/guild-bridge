@@ -15,7 +15,7 @@ import net.minecraft.client.Minecraft;
 final class GameSender {
     private static final int MAX_QUEUED = 20;
 
-    private record Pending(String command, Runnable onRejected, boolean checkRepeats) {}
+    private record Pending(String command, Runnable onRejected, boolean checkRepeats, Runnable onSent) {}
 
     private final BlockingQueue<Pending> queue = new ArrayBlockingQueue<>(MAX_QUEUED);
     private final DuplicateGuard duplicates = new DuplicateGuard(3);
@@ -38,12 +38,17 @@ final class GameSender {
      * or skipped as a repeat, so the Discord side can react with an X.
      */
     void queue(String command, Runnable onRejected) {
-        offer(new Pending(command, onRejected, true));
+        offer(new Pending(command, onRejected, true, null));
     }
 
     /** For utility commands like "locraw" that may repeat; skips the repeat check. */
     void queueUtility(String command) {
-        offer(new Pending(command, null, false));
+        offer(new Pending(command, null, false, null));
+    }
+
+    /** Utility command with callbacks: onSent runs on the client thread right after sending. */
+    void queueUtility(String command, Runnable onSent, Runnable onRejected) {
+        offer(new Pending(command, onRejected, false, onSent));
     }
 
     private void offer(Pending p) {
@@ -66,7 +71,12 @@ final class GameSender {
         }
         Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> {
-            if (mc.player != null) mc.player.connection.sendCommand(p.command());
+            if (mc.player == null) {
+                reject(p.onRejected()); // not connected, nothing was sent
+                return;
+            }
+            mc.player.connection.sendCommand(p.command());
+            if (p.onSent() != null) p.onSent().run();
         });
     }
 

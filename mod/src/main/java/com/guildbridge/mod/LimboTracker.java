@@ -34,6 +34,7 @@ final class LimboTracker {
     private volatile State state = State.NOT_ON_HYPIXEL;
     private volatile long awaitingReplyUntil;
     private volatile String lastServer;
+    private volatile long stateSince = System.currentTimeMillis();
 
     LimboTracker(GameSender game, Consumer<State> onChange) {
         this.game = game;
@@ -47,6 +48,11 @@ final class LimboTracker {
 
     String lastServer() {
         return lastServer;
+    }
+
+    /** When the current state started, for !uptime. */
+    long stateSince() {
+        return stateSince;
     }
 
     /** Call on server join and on every world change. */
@@ -84,6 +90,7 @@ final class LimboTracker {
     private void set(State next) {
         if (next == state) return;
         state = next;
+        stateSince = System.currentTimeMillis();
         onChange.accept(next);
     }
 

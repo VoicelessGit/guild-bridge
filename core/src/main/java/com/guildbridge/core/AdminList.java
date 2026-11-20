@@ -16,7 +16,8 @@ public final class AdminList {
     static final String TEMPLATE = """
             # Guild Bridge admins: Discord user IDs, one per line.
             # Get an ID: Discord Settings > Advanced > Developer Mode on, then right-click a user > Copy User ID.
-            # Admins can use !mc <command> and !status in the bridge channel.
+            # Everyone in the bridge channel can use the member commands (!commands lists them).
+            # Admins can also use !say, !mc, !status, !uptime and !restart.
             # Changes apply right away, no restart needed.
             """;
 

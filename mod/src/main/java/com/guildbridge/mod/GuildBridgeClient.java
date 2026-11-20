@@ -2,7 +2,9 @@ package com.guildbridge.mod;
 
 import com.guildbridge.core.AdminList;
 import com.guildbridge.core.BridgeEvent;
+import com.guildbridge.core.ChatParser;
 import com.guildbridge.core.ChatRouter;
+import com.guildbridge.core.CommandResponse;
 import com.guildbridge.core.DiscordEmbed;
 import com.guildbridge.core.LoopGuard;
 import com.guildbridge.core.OutgoingSanitizer;
@@ -37,6 +39,9 @@ public class GuildBridgeClient implements ClientModInitializer {
     private LoopGuard guard;
     private LimboTracker limbo;
     private AutoJoin autoJoin;
+    private final CommandCapture capture = new CommandCapture();
+    private final long startedAt = System.currentTimeMillis();
+    private volatile long joinedAt; // 0 when not connected
 
     @Override
     public void onInitializeClient() {
@@ -60,8 +65,12 @@ public class GuildBridgeClient implements ClientModInitializer {
             LOG.warn("Could not create admins file: {}", e.toString());
         }
         try {
-            bot = new DiscordBot(config.botToken, config.channelId, game, filter, admins, this::statusText,
-                    config.discordPrefix);
+            bot = new DiscordBot(config.botToken, config.channelId, game, filter, admins,
+                    config.discordPrefix, capture, new DiscordBot.Control() {
+                        @Override public String status() { return statusText(); }
+                        @Override public String uptime() { return uptimeText(); }
+                        @Override public void restart() { restartGame(); }
+                    });
         } catch (RuntimeException e) {
             LOG.error("Discord bot failed to start (bad token?): {}", e.toString());
             return;
@@ -74,18 +83,30 @@ public class GuildBridgeClient implements ClientModInitializer {
                 overlay || limbo.allowChatLine(message.getString()));
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             if (overlay) return; // action bar text, not chat
-            for (BridgeEvent event : router.accept(message.getString())) handle(event);
+            String text = message.getString();
+            boolean capturing = capture.active();
+            if (capturing) captureNonGuildLines(text);
+            for (BridgeEvent event : router.accept(text)) {
+                // While a command reply is being captured, its blocks (e.g. /g online) are part of
+                // the reply, not announcements. Guild chat keeps flowing normally.
+                if (capturing && event instanceof BridgeEvent.Announcement) continue;
+                handle(event);
+            }
         });
         autoJoin = new AutoJoin(config.autoJoinServer);
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> autoJoin.screenOpened(screen));
         ClientTickEvents.END_CLIENT_TICK.register(client -> autoJoin.tick(client));
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> autoJoin.clientStarted());
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            joinedAt = System.currentTimeMillis();
             autoJoin.joined();
             limbo.worldChanged();
         });
         ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE.register((client, level) -> limbo.worldChanged());
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> limbo.disconnected());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            joinedAt = 0;
+            limbo.disconnected();
+        });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> bot.shutdown());
         LOG.info("Guild Bridge ready");
     }
@@ -124,6 +145,49 @@ public class GuildBridgeClient implements ClientModInitializer {
             case NOT_ON_HYPIXEL -> "Not connected to Hypixel.";
         };
         return where + (autoJoin.enabled() ? " Auto-join is on." : " Auto-join is off.");
+    }
+
+    /** Reply to !uptime. */
+    private String uptimeText() {
+        long now = System.currentTimeMillis();
+        StringBuilder sb = new StringBuilder("Game running for " + CommandResponse.formatDuration(now - startedAt) + ".");
+        long joined = joinedAt;
+        if (joined > 0) {
+            sb.append(" Connected to the server for ").append(CommandResponse.formatDuration(now - joined)).append(".");
+        } else {
+            sb.append(" Not connected to a server.");
+        }
+        if (limbo != null && limbo.state() == LimboTracker.State.IN_LIMBO) {
+            sb.append(" In limbo for ").append(CommandResponse.formatDuration(now - limbo.stateSince())).append(".");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * !restart: quits the game cleanly after a short pause (so the Discord reply goes out first).
+     * The launch script's loop starts it again; without the script it just stays closed.
+     */
+    private void restartGame() {
+        LOG.info("Restart requested from Discord");
+        Thread t = new Thread(() -> {
+            try {
+                Thread.sleep(2_000);
+            } catch (InterruptedException ignored) {
+            }
+            Minecraft mc = Minecraft.getInstance();
+            mc.execute(mc::stop);
+        }, "guildbridge-restart");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Adds every line of a chat message that is not guild chat to the active capture. */
+    private void captureNonGuildLines(String text) {
+        StringBuilder kept = new StringBuilder();
+        for (String line : text.split("\\R")) {
+            if (ChatParser.parse(line).isEmpty()) kept.append(line).append('\n');
+        }
+        if (!kept.isEmpty()) capture.add(kept.toString());
     }
 
     /** Status light plus a one-line notice in the channel on every change. */

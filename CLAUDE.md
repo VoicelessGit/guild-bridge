@@ -88,11 +88,19 @@ Auto-join (`AutoJoin`, for headless runs):
   join. Logs "Auto-join is ON/OFF" at startup. `Minecraft.screen` and `getOverlay()` are not
   accessible in 26.x; the open screen is tracked via Fabric `ScreenEvents` only as the parent.
 
-Admin console (in the bridge channel, never relayed):
-- `config/guildbridge-admins.txt`: Discord user IDs, one per line, # comments. Created with
-  instructions on first launch. Re-read when the file changes, no restart needed (`AdminList`).
-- `!mc <command>` runs a game command via `GameSender.queueUtility` and reacts ✅.
-  `!status` replies with limbo state and auto-join state. Non-admins get ⛔.
+Bot commands (core `BotCommand`, typed in the bridge channel, never relayed):
+- Members (anyone in the channel): `!commands`, `!g online`, `!g top`, `!g top <1-10>`.
+- Admins (`config/guildbridge-admins.txt`, Discord user IDs, one per line, # comments, re-read on
+  change via `AdminList`): also `!say <text>` (guild chat as the bridge, no name/prefix, still
+  filtered), `!mc <command>`, `!status`, `!uptime`, `!restart`. Non-admins get ⛔.
+- Game commands (`!g ...`, `!mc ...`) run through `GameSender.queueUtility(cmd, onSent, onRejected)`.
+  `CommandCapture` collects non-guild-chat lines for 2.5 s after sending and the bot replies with a
+  code-block embed (`DiscordEmbed.response`). One capture at a time (⏳ if busy). Members share a
+  10 s cooldown; admins are exempt. Announcement blocks seen during a capture are treated as part of
+  the reply, not posted as announcements.
+- `!restart` calls `Minecraft.stop()` after 2 s; the launch script loop relaunches the game.
+- Security: no command reaches a shell or the file system. Worst case with admin access is
+  anything the bridge account can do in game. Discord token leak cannot touch the computer.
 
 ## Moderation
 
