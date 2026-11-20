@@ -68,7 +68,7 @@ Limbo check (`LimboTracker`, the bridge must always sit in limbo):
 - After every server join and world change (3 s delay) and every 10 minutes, if the server address
   contains hypixel.net, send `/locraw` via `GameSender.queueUtility` (no repeat check).
 - The JSON reply (`{"server":"limbo"}` in limbo, per community knowledge; confirm in game) is
-  parsed by core `Locraw` and hidden from chat through `ClientReceiveMessageEvents.ALLOW_GAME`,
+  parsed by core `Locraw` and hidden from chat through `ClientReceiveMessageEvents.ALLOW_GAME`, world changes via `ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE` (renamed from ClientWorldEvents in 26.1),
   but only within 15 s of asking.
 - It never moves the player. Hypixel's AFK system moves idle lobby players to limbo by itself.
   Relaying continues outside limbo; the status light and a channel notice flag it.

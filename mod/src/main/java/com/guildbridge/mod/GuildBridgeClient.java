@@ -13,7 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientWorldEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -66,7 +66,7 @@ public class GuildBridgeClient implements ClientModInitializer {
             for (BridgeEvent event : router.accept(message.getString())) handle(event);
         });
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> limbo.worldChanged());
-        ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((client, world) -> limbo.worldChanged());
+        ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE.register((client, level) -> limbo.worldChanged());
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> limbo.disconnected());
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> bot.shutdown());
         LOG.info("Guild Bridge ready");
