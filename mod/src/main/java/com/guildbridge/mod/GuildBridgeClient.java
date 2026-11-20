@@ -18,6 +18,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
@@ -75,6 +76,7 @@ public class GuildBridgeClient implements ClientModInitializer {
             for (BridgeEvent event : router.accept(message.getString())) handle(event);
         });
         autoJoin = new AutoJoin(config.autoJoinServer);
+        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> autoJoin.screenOpened(screen));
         ClientTickEvents.END_CLIENT_TICK.register(client -> autoJoin.tick(client));
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             autoJoin.joined();

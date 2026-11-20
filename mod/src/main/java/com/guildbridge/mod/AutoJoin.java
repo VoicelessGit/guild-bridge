@@ -1,5 +1,6 @@
 package com.guildbridge.mod;
 
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.gui.screens.DisconnectedScreen;
@@ -20,6 +21,8 @@ final class AutoJoin {
     private static final long MAX_DELAY_MILLIS = 600_000;
 
     private final String address;
+    /** The open screen, tracked through Fabric's ScreenEvents (Minecraft's own field is not public in 26.x). */
+    private volatile Screen currentScreen;
     private long nextAttemptAt;
     private int failures;
 
@@ -37,11 +40,20 @@ final class AutoJoin {
         failures = 0;
     }
 
+    /** Call from ScreenEvents.AFTER_INIT. */
+    void screenOpened(Screen screen) {
+        currentScreen = screen;
+        ScreenEvents.remove(screen).register(closed -> {
+            if (currentScreen == closed) currentScreen = null;
+        });
+    }
+
     /** Call from ClientTickEvents.END_CLIENT_TICK. */
     void tick(Minecraft mc) {
         if (!enabled()) return;
-        if (mc.level != null || mc.getConnection() != null || mc.getOverlay() != null) return;
-        Screen screen = mc.screen;
+        // The startup delay covers the loading overlay, so no overlay check is needed.
+        if (mc.level != null || mc.getConnection() != null) return;
+        Screen screen = currentScreen;
         boolean idle = screen instanceof TitleScreen
                 || screen instanceof DisconnectedScreen
                 || screen instanceof JoinMultiplayerScreen;
