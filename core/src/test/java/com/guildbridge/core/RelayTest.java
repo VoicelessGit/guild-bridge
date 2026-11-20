@@ -28,7 +28,8 @@ class RelayTest {
         var event = ChatParser.parse("Guild > [VIP+] ExamplePlayer [GM]: *bold* _it_").orElseThrow();
         var json = JsonParser.parseString(WebhookPayload.forEvent(event)).getAsJsonObject();
         assertEquals("ExamplePlayer [GM]", json.get("username").getAsString());
-        assertEquals("\\*bold\\* \\_it\\_", json.get("content").getAsString());
+        assertEquals("\\*bold\\* \\_it\\_", FeaturesTest.description(json));
+        assertEquals(WebhookPayload.GUILD_GREEN, FeaturesTest.embed(json).get("color").getAsInt());
     }
 
     @Test

@@ -38,7 +38,9 @@ Game to Discord:
      and is not an invite). If it says "X joined the guild!", `joinedMember` is set.
    - Other lines go to `ChatParser` (guild/officer chat, online status). Everything else is dropped.
 4. `LoopGuard` drops lines authored by the bot's own IGN.
-5. `WebhookPayload.forEvent(event, filter)` censors player text with `ProfanityFilter`, escapes
+5. `WebhookPayload.forEvent(event, filter)` builds an EMBED (chat: player name + head as webhook
+   identity, green/aqua bar; announcements: gold, titled, new member head as thumbnail;
+   status: gray). It censors player text with `ProfanityFilter`, escapes
    markdown, and ALWAYS sets `allowed_mentions: {parse: []}` so nobody can ping @everyone.
 6. `WebhookSender` posts in order on one background thread. Never block the render thread.
 7. If an announcement has `joinedMember` and `WelcomeTracker.firstTime(name)` is true, queue
@@ -64,7 +66,9 @@ Discord to game (phase 2, not built yet):
 
 - Slowmode 5 to 10 s on the bridge channel (Channel settings > Overview > Slowmode).
 - Game to Discord uses a webhook, which slowmode does not throttle.
-- For phase 2, give the bot's role the standalone "Bypass Slowmode" permission. As of Feb 2026,
+- For phase 2, give the bot's role the standalone "Bypass Slowmode" permission.
+- Bot invite permissions: View Channels, Send Messages, Read Message History, Add Reactions,
+  Embed Links (only needed if the bot account itself posts embeds), Bypass Slowmode. As of Feb 2026,
   Manage Messages / Manage Channel no longer bypass slowmode automatically.
 - Users sending from Discord to game are rate-limited by slowmode, which also protects the
   in-game chat cooldown.

@@ -123,7 +123,8 @@ class FeaturesTest {
     void announcementWebhookIsCensoredAndBold() throws Exception {
         var a = new BridgeEvent.Announcement("Guild MOTD: shit happens", null);
         var json = JsonParser.parseString(WebhookPayload.forEvent(a, filter("shit 2", 2))).getAsJsonObject();
-        assertEquals("**Guild MOTD: \\*\\*\\*\\* happens**", json.get("content").getAsString());
+        assertEquals("Guild MOTD: \\*\\*\\*\\* happens", description(json));
+        assertEquals("Guild Announcement", embed(json).get("title").getAsString());
         assertTrue(new LoopGuard("BridgeBot").shouldRelay(a));
     }
 
@@ -131,7 +132,7 @@ class FeaturesTest {
     void chatWebhookIsCensored() throws Exception {
         var e = ChatParser.parse("Guild > BridgeBot: fuck yeah").orElseThrow();
         var json = JsonParser.parseString(WebhookPayload.forEvent(e, filter("fuck 2", 2))).getAsJsonObject();
-        assertEquals("\\*\\*\\*\\* yeah", json.get("content").getAsString());
+        assertEquals("\\*\\*\\*\\* yeah", description(json));
     }
 
     // --- Real samples from the joining account's side, screenshot Nov 2026 ---
@@ -187,6 +188,23 @@ class FeaturesTest {
     void realInviteConfirmationIsIgnored() {
         assertTrue(new ChatRouter().accept(SEP
                 + "\nYou invited BridgeBot to your guild. They have 5 minutes to accept.\n" + SEP).isEmpty());
+    }
+
+    @Test
+    void joinAnnouncementEmbedShowsNewMembersHead() {
+        var a = new BridgeEvent.Announcement("BridgeBot joined the guild!", "BridgeBot");
+        var json = JsonParser.parseString(WebhookPayload.forEvent(a)).getAsJsonObject();
+        assertEquals("https://mc-heads.net/avatar/BridgeBot",
+                embed(json).getAsJsonObject("thumbnail").get("url").getAsString());
+        assertEquals(WebhookPayload.ANNOUNCEMENT_GOLD, embed(json).get("color").getAsInt());
+    }
+
+    static com.google.gson.JsonObject embed(com.google.gson.JsonObject json) {
+        return json.getAsJsonArray("embeds").get(0).getAsJsonObject();
+    }
+
+    static String description(com.google.gson.JsonObject json) {
+        return embed(json).get("description").getAsString();
     }
 
     private static BridgeEvent single(List<BridgeEvent> events) {
