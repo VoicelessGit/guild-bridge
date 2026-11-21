@@ -113,18 +113,25 @@ final class GameProcess {
             throw new IOException("HeadlessMc launcher not found at " + hmc
                     + " (put it next to the supervisor jar or set headlessMcPath)");
         }
-        hmc.toFile().setExecutable(true);
         String jvm = cfg.jvmArgs
                 + " -Dguildbridge.ipc.port=" + cfg.ipcPort
                 + " -Dguildbridge.ipc.secret=" + ipcSecret;
-        List<String> cmd = List.of(hmc.toAbsolutePath().toString(),
-                "launch", "fabric", cfg.minecraftVersion, "-lwjgl", "--jvm", jvm);
+        List<String> cmd = new java.util.ArrayList<>();
+        if (hmc.getFileName().toString().endsWith(".jar")) {
+            // The plain jar build of HeadlessMc runs on the same Java as the supervisor.
+            cmd.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+            cmd.add("-jar");
+        } else {
+            hmc.toFile().setExecutable(true);
+        }
+        cmd.add(hmc.toAbsolutePath().toString());
+        cmd.addAll(List.of("launch", "fabric", cfg.minecraftVersion, "-lwjgl", "--jvm", jvm));
 
         ProcessBuilder pb = new ProcessBuilder(cmd)
                 .directory(hmc.toAbsolutePath().getParent().toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(dir.resolve("game-console.log").toFile())
-                .redirectInput(ProcessBuilder.Redirect.from(nullInput()));
+                .redirectInput(ProcessBuilder.Redirect.PIPE);
         stopping = false;
         process = pb.start();
         startedAt = System.currentTimeMillis();
@@ -183,10 +190,5 @@ final class GameProcess {
         }
         p.descendants().forEach(ProcessHandle::destroyForcibly);
         p.destroyForcibly();
-    }
-
-    private static java.io.File nullInput() {
-        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
-        return new java.io.File(os.contains("win") ? "NUL" : "/dev/null");
     }
 }

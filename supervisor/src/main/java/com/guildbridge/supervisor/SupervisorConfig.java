@@ -70,6 +70,9 @@ final class SupervisorConfig {
         try (Stream<Path> files = Files.list(dir)) {
             return files.filter(p -> p.getFileName().toString().startsWith("headlessmc-launcher"))
                     .filter(Files::isRegularFile)
+                    .filter(p -> !p.getFileName().toString().matches(".*\\.(zip|tar|gz|txt|log)$"))
+                    // Prefer a native launcher over the jar when both are present.
+                    .sorted(java.util.Comparator.comparing(p -> p.getFileName().toString().endsWith(".jar")))
                     .findFirst().orElse(dir.resolve("headlessmc-launcher"));
         } catch (IOException e) {
             return dir.resolve("headlessmc-launcher");
