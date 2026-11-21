@@ -176,6 +176,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
 
     private void onState(String state, String server) {
         if (state == null || state.equals(limboState)) return;
+        boolean first = limboState == null;
         limboState = state;
         lastServer = server;
         stateSince = System.currentTimeMillis();
@@ -185,7 +186,8 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
                     + (cfg.autoLimbo ? " Sending /limbo in " + cfg.autoLimboDelaySeconds + " s." : "");
             default -> "Bridge is not connected to Hypixel.";
         };
-        bot.post(DiscordEmbed.notice(text, "IN_LIMBO".equals(state)));
+        // The game reports "not on Hypixel" right after it starts; that is expected, not news.
+        if (!(first && "NOT_ON_HYPIXEL".equals(state))) bot.post(DiscordEmbed.notice(text, "IN_LIMBO".equals(state)));
         if ("IN_LIMBO".equals(state)) limiter.reset("not-in-limbo");
         updatePresence();
     }

@@ -46,7 +46,8 @@ final class LimboTracker {
     LimboTracker(GameSender game, Consumer<State> onChange) {
         this.game = game;
         this.onChange = onChange;
-        timer.scheduleWithFixedDelay(this::check, PERIODIC_MINUTES, PERIODIC_MINUTES, TimeUnit.MINUTES);
+        // An exception in a scheduled task would silently cancel it forever, so every task is wrapped.
+        timer.scheduleWithFixedDelay(() -> safely(this::check), PERIODIC_MINUTES, PERIODIC_MINUTES, TimeUnit.MINUTES);
     }
 
     State state() {
@@ -64,7 +65,15 @@ final class LimboTracker {
 
     /** Call on server join and on every world change. */
     void worldChanged() {
-        timer.schedule(this::check, CHECK_DELAY_SECONDS, TimeUnit.SECONDS);
+        timer.schedule(() -> safely(this::check), CHECK_DELAY_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private static void safely(Runnable r) {
+        try {
+            r.run();
+        } catch (Throwable t) {
+            GuildBridgeClient.LOG.warn("Limbo check error: {}", t.toString());
+        }
     }
 
     void disconnected() {
@@ -78,8 +87,14 @@ final class LimboTracker {
     boolean allowChatLine(String line) {
         if (System.currentTimeMillis() > awaitingReplyUntil) return true;
         var info = Locraw.parse(line);
-        if (info.isEmpty()) return true;
+        if (info.isEmpty()) {
+            if (line.contains("{") && line.contains("server")) {
+                GuildBridgeClient.LOG.warn("Could not read this /locraw reply: {}", line);
+            }
+            return true;
+        }
         awaitingReplyUntil = 0;
+        GuildBridgeClient.LOG.info("Location: {}", line.strip());
         lastServer = info.get().server();
         boolean inLimbo = info.get().inLimbo();
         set(inLimbo ? State.IN_LIMBO : State.ON_HYPIXEL_NOT_LIMBO);
@@ -104,7 +119,7 @@ final class LimboTracker {
     /** Sends /limbo after the delay, if still not in limbo. Attempts stay at least 30 s apart. */
     private void scheduleLimbo() {
         if (!autoLimbo || !limboPending.compareAndSet(false, true)) return;
-        timer.schedule(this::attemptLimbo, autoLimboDelayMillis, TimeUnit.MILLISECONDS);
+        timer.schedule(() -> safely(this::attemptLimbo), autoLimboDelayMillis, TimeUnit.MILLISECONDS);
     }
 
     private void attemptLimbo() {
@@ -115,7 +130,7 @@ final class LimboTracker {
         long wait = LIMBO_MIN_GAP_MILLIS - (System.currentTimeMillis() - lastLimboAttempt);
         if (wait > 0) {
             // Too soon after the last try: try again once the gap has passed, not 10 minutes later.
-            timer.schedule(this::attemptLimbo, wait, TimeUnit.MILLISECONDS);
+            timer.schedule(() -> safely(this::attemptLimbo), wait, TimeUnit.MILLISECONDS);
             return;
         }
         limboPending.set(false);
@@ -124,16 +139,25 @@ final class LimboTracker {
         game.queueUtility("limbo");
         // Moving to limbo is a world change, which triggers a fresh /locraw by itself.
         // This extra check catches the case where /limbo did nothing.
-        timer.schedule(this::check, 10, TimeUnit.SECONDS);
+        timer.schedule(() -> safely(this::check), 10, TimeUnit.SECONDS);
     }
 
     private void check() {
         if (!onHypixel()) {
+            GuildBridgeClient.LOG.info("Location check: not connected to Hypixel");
             set(State.NOT_ON_HYPIXEL);
             return;
         }
-        awaitingReplyUntil = System.currentTimeMillis() + REPLY_WINDOW_MILLIS;
-        game.queueUtility("locraw");
+        long until = System.currentTimeMillis() + REPLY_WINDOW_MILLIS;
+        awaitingReplyUntil = until;
+        GuildBridgeClient.LOG.info("Location check: sending /locraw");
+        game.queueUtility("locraw", null,
+                () -> GuildBridgeClient.LOG.warn("Location check: /locraw could not be sent"));
+        timer.schedule(() -> {
+            if (awaitingReplyUntil == until) {
+                GuildBridgeClient.LOG.warn("Location check: no /locraw reply within {} s", REPLY_WINDOW_MILLIS / 1000);
+            }
+        }, REPLY_WINDOW_MILLIS + 500, TimeUnit.MILLISECONDS);
     }
 
     private void set(State next) {
@@ -144,7 +168,12 @@ final class LimboTracker {
     }
 
     static boolean onHypixel() {
-        ServerData server = Minecraft.getInstance().getCurrentServer();
-        return server != null && server.ip.toLowerCase(Locale.ROOT).contains("hypixel.net");
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getConnection() == null) return false;
+        ServerData server = mc.getCurrentServer();
+        // No server data while connected still means a multiplayer server; auto-join only goes to Hypixel.
+        if (server == null || server.ip == null) return true;
+        String ip = server.ip.toLowerCase(Locale.ROOT);
+        return ip.contains("hypixel.net") || ip.contains("hypixel.io");
     }
 }

@@ -165,6 +165,7 @@ public class GuildBridgeClient implements ClientModInitializer {
                         (int) Ipc.num(m, "autoJoinRetrySeconds", 10), (int) Ipc.num(m, "autoJoinMaxRetrySeconds", 300));
                 limbo.configure(Ipc.bool(m, "autoLimbo", true), Ipc.num(m, "autoLimboDelaySeconds", 5) * 1000L);
                 game.setGap(Ipc.num(m, "gameSendGapMillis", 1500));
+                limboChanged(limbo.state()); // the supervisor may have restarted and lost track
                 // A fresh connection should learn where we are right away.
                 limbo.worldChanged();
             }
