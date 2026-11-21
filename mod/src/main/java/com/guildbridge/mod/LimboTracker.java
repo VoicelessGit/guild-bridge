@@ -24,6 +24,8 @@ final class LimboTracker {
     private static final long PERIODIC_MINUTES = 10;
     private static final long REPLY_WINDOW_MILLIS = 15_000;
     private static final long LIMBO_MIN_GAP_MILLIS = 30_000;
+    private static final int MAX_QUICK_RETRIES = 4;
+    private final java.util.concurrent.atomic.AtomicInteger missedReplies = new java.util.concurrent.atomic.AtomicInteger();
 
     private final GameSender game;
     private final Consumer<State> onChange;
@@ -65,6 +67,7 @@ final class LimboTracker {
 
     /** Call on server join and on every world change. */
     void worldChanged() {
+        missedReplies.set(0);
         timer.schedule(() -> safely(this::check), CHECK_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
@@ -94,6 +97,7 @@ final class LimboTracker {
             return true;
         }
         awaitingReplyUntil = 0;
+        missedReplies.set(0);
         GuildBridgeClient.LOG.info("Location: {}", line.strip());
         lastServer = info.get().server();
         boolean inLimbo = info.get().inLimbo();
@@ -155,7 +159,12 @@ final class LimboTracker {
                 () -> GuildBridgeClient.LOG.warn("Location check: /locraw could not be sent"));
         timer.schedule(() -> {
             if (awaitingReplyUntil == until) {
-                GuildBridgeClient.LOG.warn("Location check: no /locraw reply within {} s", REPLY_WINDOW_MILLIS / 1000);
+                // Hypixel ignores commands sent while it is still moving you to a lobby. Try again soon
+                // instead of waiting for the 10-minute check, a few times per world change.
+                int n = missedReplies.incrementAndGet();
+                GuildBridgeClient.LOG.warn("Location check: no /locraw reply within {} s (miss {})",
+                        REPLY_WINDOW_MILLIS / 1000, n);
+                if (n <= MAX_QUICK_RETRIES) timer.schedule(() -> safely(this::check), 15, TimeUnit.SECONDS);
             }
         }, REPLY_WINDOW_MILLIS + 500, TimeUnit.MILLISECONDS);
     }
