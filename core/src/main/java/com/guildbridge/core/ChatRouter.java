@@ -17,32 +17,63 @@ import java.util.regex.Pattern;
  */
 public final class ChatRouter {
     private static final Pattern SEPARATOR = Pattern.compile("^[-_▬]{10,}$");
+    /** A separator with a title in the middle, e.g. "------  Guild: Message Of The Day  ------". */
+    private static final Pattern TITLED_SEPARATOR = Pattern.compile("^[-_▬]{5,}\\s*(?<title>.*?\\S)\\s*[-_▬]{5,}$");
     private static final Pattern JOINED_GUILD = Pattern.compile(
             "^(?:\\[[A-Z+]+\\] )?(?<name>\\w{1,16}) joined the guild!$");
     /** Blocks that mention guilds but are not announcements for everyone. */
     private static final Pattern NOT_ANNOUNCEMENT = Pattern.compile(
-            "(?i)invited you to join|click here|/g accept");
+            "(?i)invited you to join|click here|/g accept|message of the day");
     /** Keeps a stuck block from growing forever if a closing separator never arrives. */
     private static final int MAX_BLOCK_LINES = 12;
+    /** A real block arrives within one moment; one older than this was a stray separator. */
+    private static final long MAX_BLOCK_MILLIS = 3_000;
 
+    private final java.util.function.LongSupplier clock;
     private List<String> block; // null when not inside a separator block
+    private long blockStartedAt;
+
+    public ChatRouter() {
+        this(System::currentTimeMillis);
+    }
+
+    /** For tests: a fake clock in milliseconds. */
+    public ChatRouter(java.util.function.LongSupplier clock) {
+        this.clock = clock;
+    }
 
     public synchronized List<BridgeEvent> accept(String message) {
         List<BridgeEvent> out = new ArrayList<>();
         if (message == null) return out;
+        long now = clock.getAsLong();
+        if (block != null && now - blockStartedAt > MAX_BLOCK_MILLIS) block = null;
         for (String raw : TextUtil.stripFormatting(message).split("\\R")) {
             String line = raw.strip();
+            // Guild/officer chat and join/leave lines are never part of a block, so a stray separator can't swallow it.
+            var chat = ChatParser.parse(line);
+            if (chat.isPresent()) {
+                out.add(chat.get());
+                continue;
+            }
+            Matcher titled = TITLED_SEPARATOR.matcher(line);
             if (SEPARATOR.matcher(line).matches()) {
                 if (block == null) {
                     block = new ArrayList<>();
+                    blockStartedAt = now;
                 } else {
                     finishBlock(out);
                 }
+            } else if (titled.matches()) {
+                // A titled separator opens a block whose first line is the title.
+                if (block != null) finishBlock(out);
+                block = new ArrayList<>();
+                block.add(titled.group("title"));
+                blockStartedAt = now;
             } else if (block != null) {
                 if (!line.isEmpty()) block.add(line);
                 if (block.size() > MAX_BLOCK_LINES) block = null;
             } else {
-                ChatParser.parse(line).ifPresent(out::add);
+                chat.ifPresent(out::add);
             }
         }
         return out;

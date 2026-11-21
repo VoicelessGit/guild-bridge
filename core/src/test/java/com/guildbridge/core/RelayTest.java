@@ -78,4 +78,43 @@ class RelayTest {
     void outgoingEmptyReturnsNull() {
         assertNull(OutgoingSanitizer.toGuildCommand("Justin", "  \n "));
     }
+
+    // Real login sequence from the server, Nov 21 2026: the Message Of The Day block used to leave
+    // the router stuck inside a block, swallowing guild chat afterwards.
+    @Test
+    void motdBlockDoesNotSwallowLaterChat() {
+        long[] now = {0};
+        ChatRouter r = new ChatRouter(() -> now[0]);
+        assertTrue(r.accept("                          ").isEmpty());
+        assertTrue(r.accept("--------------  Guild: Message Of The Day  --------------").isEmpty());
+        assertTrue(r.accept("| USE CODE: EXAMPLE IN THE HYPIXEL STORE!!!").isEmpty());
+        assertTrue(r.accept("-----------------------------------------------------").isEmpty(), "MOTD is not relayed");
+        now[0] += 150_000;
+        assertTrue(r.accept("\u00a7b[MVP\u00a7c+\u00a7b] BigBoiToasty\u00a7f \u00a76joined the lobby!").isEmpty());
+        assertEquals(1, r.accept("Guild > PlayerOne joined.").size());
+        var chat = r.accept("\u00a72Guild > \u00a7b[MVP\u00a7f++\u00a7b] PlayerOne \u00a7e[CHAD]\u00a7f: thx for responding gng :sob:");
+        assertEquals(1, chat.size());
+        assertEquals("thx for responding gng :sob:", ((BridgeEvent.Chat) chat.get(0)).message());
+    }
+
+    @Test
+    void guildChatInsideAnOpenBlockStillRelays() {
+        ChatRouter r = new ChatRouter(() -> 0);
+        r.accept("-----------------------------------------------------");
+        assertEquals(1, r.accept("Guild > [MVP+] Someone [Member]: hi").size());
+    }
+
+    @Test
+    void strayOpenSeparatorExpires() {
+        long[] now = {0};
+        ChatRouter r = new ChatRouter(() -> now[0]);
+        r.accept("-----------------------------------------------------");
+        now[0] += 10_000;
+        // A later block must open fresh instead of closing the stale one.
+        r.accept("-----------------------------------------------------");
+        r.accept("Steve joined the guild!");
+        var out = r.accept("-----------------------------------------------------");
+        assertEquals(1, out.size());
+        assertEquals("Steve", ((BridgeEvent.Announcement) out.get(0)).joinedMember());
+    }
 }
