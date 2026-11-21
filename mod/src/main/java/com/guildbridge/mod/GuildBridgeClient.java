@@ -1,87 +1,60 @@
 package com.guildbridge.mod;
 
-import com.guildbridge.core.AdminList;
+import com.google.gson.JsonObject;
 import com.guildbridge.core.BridgeEvent;
 import com.guildbridge.core.ChatParser;
 import com.guildbridge.core.ChatRouter;
-import com.guildbridge.core.CommandResponse;
-import com.guildbridge.core.DiscordEmbed;
-import com.guildbridge.core.LoopGuard;
-import com.guildbridge.core.OutgoingSanitizer;
-import com.guildbridge.core.ProfanityFilter;
-import com.guildbridge.core.WelcomeTracker;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import com.guildbridge.core.Ipc;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
-import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Entry point. Thin glue: chat events in, core logic, Discord bot and game commands out. */
+/**
+ * Entry point. The mod is the supervisor's hands and eyes inside Minecraft: it reports chat,
+ * location and disconnects, and runs the commands it is given. It has no Discord code and never
+ * sees the bot token. Without a supervisor (no -Dguildbridge.ipc.* on the command line) it stays idle.
+ *
+ * <p>Every handler that runs on the game thread is wrapped: an exception there makes Minecraft
+ * disconnect with "Network Protocol Error".
+ */
 public class GuildBridgeClient implements ClientModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger("guildbridge");
 
     private final ChatRouter router = new ChatRouter();
-    private BridgeConfig config;
-    private ProfanityFilter filter;
+    private final CommandCapture capture = new CommandCapture();
     private GameSender game;
-    private DiscordBot bot;
-    private WelcomeTracker welcomes;
-    private LoopGuard guard;
     private LimboTracker limbo;
     private AutoJoin autoJoin;
-    private final CommandCapture capture = new CommandCapture();
-    private final long startedAt = System.currentTimeMillis();
-    private volatile long joinedAt; // 0 when not connected
+    private DisconnectWatcher disconnects;
+    private IpcClient ipc;
 
     @Override
     public void onInitializeClient() {
-        Path dir = FabricLoader.getInstance().getConfigDir();
-        config = BridgeConfig.load(dir.resolve("guildbridge.json"));
-        if (!config.isComplete()) {
-            LOG.warn("Set botToken and channelId in config/guildbridge.json, bridge is disabled");
-            return;
-        }
-        filter = loadFilter(dir.resolve("guildbridge-filter.txt"), config.filterThreshold);
-        game = new GameSender(config.gameSendGapMillis);
-        try {
-            welcomes = new WelcomeTracker(dir.resolve("guildbridge-welcomed.txt"));
-        } catch (IOException e) {
-            LOG.error("Could not read welcomed list, welcomes disabled: {}", e.toString());
-        }
-        AdminList admins = new AdminList(dir.resolve("guildbridge-admins.txt"));
-        try {
-            admins.createIfMissing();
-        } catch (IOException e) {
-            LOG.warn("Could not create admins file: {}", e.toString());
-        }
-        try {
-            bot = new DiscordBot(config.botToken, config.channelId, game, filter, admins,
-                    config.discordPrefix, capture, new DiscordBot.Control() {
-                        @Override public String status() { return statusText(); }
-                        @Override public String uptime() { return uptimeText(); }
-                        @Override public void restart() { restartGame(); }
-                    });
-        } catch (RuntimeException e) {
-            LOG.error("Discord bot failed to start (bad token?): {}", e.toString());
+        String port = System.getProperty("guildbridge.ipc.port");
+        String secret = System.getProperty("guildbridge.ipc.secret");
+        if (port == null || secret == null || !port.matches("\\d{1,5}")) {
+            LOG.warn("Guild Bridge: not started by the supervisor, so the bridge is idle in this client.");
             return;
         }
 
-        limbo = new LimboTracker(game, this::limboChanged,
-                config.autoLimbo, Math.max(1, config.autoLimboDelaySeconds) * 1000L);
+        game = new GameSender(1500);
+        limbo = new LimboTracker(game, this::limboChanged);
+        autoJoin = new AutoJoin();
+        ipc = new IpcClient(Integer.parseInt(port), secret,
+                () -> Minecraft.getInstance().getUser().getName(), this::onSupervisorMessage);
+        disconnects = new DisconnectWatcher(reason -> {
+            JsonObject m = Ipc.msg("disconnect");
+            m.addProperty("reason", reason);
+            ipc.send(m);
+        });
 
-        // Hide our own /locraw replies from chat before anything else sees them.
-        // Every handler that runs inside the game's packet handling is wrapped: an exception there
-        // makes Minecraft disconnect with "Network Protocol Error".
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> {
             try {
                 return overlay || limbo.allowChatLine(message.getString());
@@ -97,8 +70,14 @@ public class GuildBridgeClient implements ClientModInitializer {
                 LOG.warn("Error handling chat message: {}", t.toString());
             }
         });
-        autoJoin = new AutoJoin(config.autoJoinServer, config.autoJoinRetrySeconds, config.autoJoinMaxRetrySeconds);
-        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> autoJoin.screenOpened(screen));
+        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            try {
+                autoJoin.screenOpened(screen);
+                disconnects.screenOpened(screen);
+            } catch (Throwable t) {
+                LOG.warn("Screen handler error: {}", t.toString());
+            }
+        });
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             try {
                 autoJoin.tick(client);
@@ -106,111 +85,69 @@ public class GuildBridgeClient implements ClientModInitializer {
                 LOG.warn("Auto-join error: {}", t.toString());
             }
         });
-        ClientLifecycleEvents.CLIENT_STARTED.register(client -> autoJoin.clientStarted());
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            joinedAt = System.currentTimeMillis();
-            autoJoin.joined();
-            limbo.worldChanged();
+        ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+            try {
+                autoJoin.clientStarted();
+            } catch (Throwable t) {
+                LOG.warn("Startup handler error: {}", t.toString());
+            }
         });
-        ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE.register((client, level) -> limbo.worldChanged());
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            try {
+                ipc.send(Ipc.msg("joined"));
+                autoJoin.joined();
+                limbo.worldChanged();
+            } catch (Throwable t) {
+                LOG.warn("Join handler error: {}", t.toString());
+            }
+        });
+        ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE.register((client, level) -> {
+            try {
+                limbo.worldChanged();
+            } catch (Throwable t) {
+                LOG.warn("Level change handler error: {}", t.toString());
+            }
+        });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            joinedAt = 0;
-            limbo.disconnected();
+            try {
+                limbo.disconnected();
+                disconnects.disconnected();
+            } catch (Throwable t) {
+                LOG.warn("Disconnect handler error: {}", t.toString());
+            }
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
             try {
-                bot.shutdown();
+                ipc.close();
             } catch (Throwable t) {
-                LOG.warn("Bot shutdown error: {}", t.toString());
+                LOG.warn("Shutdown error: {}", t.toString());
             }
         });
-        LOG.info("Guild Bridge ready");
+
+        ipc.start();
+        LOG.info("Guild Bridge ready, connecting to the supervisor on port {}", port);
     }
 
+    // ---- game to supervisor ----
 
     private void onGameMessage(String text, boolean overlay) {
         if (overlay) return; // action bar text, not chat
         boolean capturing = capture.active();
         if (capturing) captureNonGuildLines(text);
         for (BridgeEvent event : router.accept(text)) {
-            // While a command reply is being captured, its blocks (e.g. /g online) are part of
-            // the reply, not announcements. Guild chat keeps flowing normally.
+            // While a command reply is being captured, its blocks (e.g. /g online) belong to the reply.
             if (capturing && event instanceof BridgeEvent.Announcement) continue;
-            handle(event);
+            ipc.send(Ipc.event(event));
         }
     }
 
-    private void handle(BridgeEvent event) {
-        if (guard == null) {
-            // The account name is only known once the client is up.
-            guard = new LoopGuard(Minecraft.getInstance().getUser().getName());
-        }
-        if (!guard.shouldRelay(event)) return;
-
-        bot.post(DiscordEmbed.forEvent(event, filter));
-
-        if (event instanceof BridgeEvent.Announcement a && a.joinedMember() != null) {
-            welcome(a.joinedMember());
-        }
+    private void limboChanged(LimboTracker.State state) {
+        JsonObject m = Ipc.msg("state");
+        m.addProperty("state", state.name());
+        m.addProperty("server", limbo.lastServer());
+        ipc.send(m);
     }
 
-    private void welcome(String name) {
-        if (!config.welcomeEnabled || welcomes == null) return;
-        try {
-            if (welcomes.firstTime(name)) {
-                game.queue(OutgoingSanitizer.welcomeCommand(config.welcomeMessage, name));
-            }
-        } catch (IOException e) {
-            LOG.warn("Could not save welcomed list: {}", e.toString());
-        }
-    }
-
-    /** Reply to !status. */
-    private String statusText() {
-        if (limbo == null || autoJoin == null) return "Starting up.";
-        String where = switch (limbo.state()) {
-            case IN_LIMBO -> "In limbo, relaying.";
-            case ON_HYPIXEL_NOT_LIMBO -> "On Hypixel but not in limbo (server: " + limbo.lastServer() + ").";
-            case NOT_ON_HYPIXEL -> "Not connected to Hypixel.";
-        };
-        return where + (autoJoin.enabled() ? " Auto-join is on." : " Auto-join is off.");
-    }
-
-    /** Reply to !uptime. */
-    private String uptimeText() {
-        long now = System.currentTimeMillis();
-        StringBuilder sb = new StringBuilder("Game running for " + CommandResponse.formatDuration(now - startedAt) + ".");
-        long joined = joinedAt;
-        if (joined > 0) {
-            sb.append(" Connected to the server for ").append(CommandResponse.formatDuration(now - joined)).append(".");
-        } else {
-            sb.append(" Not connected to a server.");
-        }
-        if (limbo != null && limbo.state() == LimboTracker.State.IN_LIMBO) {
-            sb.append(" In limbo for ").append(CommandResponse.formatDuration(now - limbo.stateSince())).append(".");
-        }
-        return sb.toString();
-    }
-
-    /**
-     * !restart: quits the game cleanly after a short pause (so the Discord reply goes out first).
-     * The launch script's loop starts it again; without the script it just stays closed.
-     */
-    private void restartGame() {
-        LOG.info("Restart requested from Discord");
-        Thread t = new Thread(() -> {
-            try {
-                Thread.sleep(2_000);
-            } catch (InterruptedException ignored) {
-            }
-            Minecraft mc = Minecraft.getInstance();
-            mc.execute(mc::stop);
-        }, "guildbridge-restart");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    /** Adds every line of a chat message that is not guild chat to the active capture. */
     private void captureNonGuildLines(String text) {
         StringBuilder kept = new StringBuilder();
         for (String line : text.split("\\R")) {
@@ -219,29 +156,62 @@ public class GuildBridgeClient implements ClientModInitializer {
         if (!kept.isEmpty()) capture.add(kept.toString());
     }
 
-    /** Status light plus a one-line notice in the channel on every change. */
-    private void limboChanged(LimboTracker.State state) {
-        bot.setState(state);
-        String text = switch (state) {
-            case IN_LIMBO -> "Bridge is in limbo and relaying.";
-            case ON_HYPIXEL_NOT_LIMBO -> "Bridge is on Hypixel but NOT in limbo (server: " + limbo.lastServer() + "). "
-                    + (limbo.autoLimbo()
-                        ? "Sending /limbo in " + limbo.autoLimboDelayMillis() / 1000 + " s."
-                        : "Hypixel's AFK system should move it to limbo within a few minutes.");
-            case NOT_ON_HYPIXEL -> "Bridge is not connected to Hypixel.";
-        };
-        bot.post(DiscordEmbed.notice(text, state == LimboTracker.State.IN_LIMBO));
+    // ---- supervisor to game ----
+
+    private void onSupervisorMessage(JsonObject m) {
+        switch (Ipc.type(m)) {
+            case "settings" -> {
+                autoJoin.configure(Ipc.str(m, "autoJoinServer"),
+                        (int) Ipc.num(m, "autoJoinRetrySeconds", 10), (int) Ipc.num(m, "autoJoinMaxRetrySeconds", 300));
+                limbo.configure(Ipc.bool(m, "autoLimbo", true), Ipc.num(m, "autoLimboDelaySeconds", 5) * 1000L);
+                game.setGap(Ipc.num(m, "gameSendGapMillis", 1500));
+                // A fresh connection should learn where we are right away.
+                limbo.worldChanged();
+            }
+            case "command" -> runCommand(m);
+            case "autojoin" -> autoJoin.pause(Ipc.num(m, "pausedMinutes", 0));
+            case "stop" -> {
+                LOG.info("Supervisor asked the game to quit");
+                Minecraft mc = Minecraft.getInstance();
+                mc.execute(mc::stop);
+            }
+            default -> { }
+        }
     }
 
-    /** Uses config/guildbridge-filter.txt if present, otherwise the list bundled in the jar. */
-    private static ProfanityFilter loadFilter(Path custom, int threshold) {
-        if (Files.exists(custom)) {
-            try {
-                return new ProfanityFilter(Files.newBufferedReader(custom, StandardCharsets.UTF_8), threshold);
-            } catch (IOException | RuntimeException e) {
-                LOG.error("Bad custom filter list, using bundled one: {}", e.toString());
+    private void runCommand(JsonObject m) {
+        long id = Ipc.num(m, "id", -1);
+        String cmd = Ipc.str(m, "command");
+        Runnable sent = () -> reply("sent", id, null);
+        Runnable rejected = () -> reply("rejected", id, null);
+
+        if (Ipc.bool(m, "capture", false)) {
+            if (!capture.reserve()) {
+                reply("rejected", id, "busy");
+                return;
             }
+            game.queueUtility(cmd,
+                    () -> capture.begin(text -> {
+                        JsonObject c = Ipc.msg("capture");
+                        c.addProperty("id", id);
+                        c.addProperty("text", text);
+                        ipc.send(c);
+                    }),
+                    () -> {
+                        capture.cancel();
+                        rejected.run();
+                    });
+        } else if (Ipc.bool(m, "checkRepeats", true)) {
+            game.queueChat(cmd, sent, rejected);
+        } else {
+            game.queueUtility(cmd, sent, rejected);
         }
-        return ProfanityFilter.bundled(threshold);
+    }
+
+    private void reply(String type, long id, String reason) {
+        JsonObject r = Ipc.msg(type);
+        r.addProperty("id", id);
+        if (reason != null) r.addProperty("reason", reason);
+        ipc.send(r);
     }
 }

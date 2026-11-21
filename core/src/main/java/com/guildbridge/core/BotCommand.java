@@ -8,7 +8,8 @@ import java.util.Set;
  * Commands typed in the bridge channel. They are never relayed to guild chat.
  *
  * <p>Members (anyone in the channel): !commands, !g online, !g top [1-10].
- * Admins (listed in guildbridge-admins.txt): everything above plus !say, !mc, !status, !uptime, !restart.
+ * Admins (listed in guildbridge-admins.txt): everything above plus !say, !mc, !status, !uptime,
+ * !start, !stop, !restart, !logs [lines], !rejoin.
  *
  * <p>Security: nothing here ever reaches a shell. Each command maps to fixed Minecraft chat
  * commands, or to admin-only text that goes through the same sanitizing as normal chat.
@@ -28,12 +29,18 @@ public final class BotCommand {
     public record Status() implements Parsed {}
     public record Uptime() implements Parsed {}
     public record Restart() implements Parsed {}
+    public record Start() implements Parsed {}
+    public record Stop() implements Parsed {}
+    /** lines to show, 1 to 50. */
+    public record Logs(int lines) implements Parsed {}
+    /** Clears a ban or duplicate-login pause and lets auto-join try again. */
+    public record Rejoin() implements Parsed {}
 
     /** A known command used wrongly; message is the usage hint to show. */
     public record Invalid(String message) implements Parsed {}
 
     private static final Set<String> KNOWN = Set.of(
-            "commands", "g", "say", "mc", "status", "uptime", "restart");
+            "commands", "g", "say", "mc", "status", "uptime", "restart", "start", "stop", "logs", "rejoin");
 
     private BotCommand() {}
 
@@ -47,8 +54,9 @@ public final class BotCommand {
     }
 
     public static boolean requiresAdmin(Parsed p) {
-        return p instanceof Say || p instanceof Run || p instanceof Status
-                || p instanceof Uptime || p instanceof Restart;
+        return p instanceof Say || p instanceof Run || p instanceof Status || p instanceof Uptime
+                || p instanceof Restart || p instanceof Start || p instanceof Stop
+                || p instanceof Logs || p instanceof Rejoin;
     }
 
     /** Parses a message. Empty means it is not a command at all. */
@@ -63,6 +71,10 @@ public final class BotCommand {
             case "status" -> new Status();
             case "uptime" -> new Uptime();
             case "restart" -> new Restart();
+            case "start" -> new Start();
+            case "stop" -> new Stop();
+            case "rejoin" -> new Rejoin();
+            case "logs" -> parseLogs(rest);
             case "g" -> parseGuild(rest);
             case "say" -> rest.isEmpty() ? new Invalid("Usage: `!say <message>`") : new Say(rest);
             case "mc" -> parseRun(rest);
@@ -82,6 +94,15 @@ public final class BotCommand {
             return new Invalid("Usage: `!g top` or `!g top <1-10>`");
         }
         return new Invalid("Usage: `!g online`, `!g top` or `!g top <1-10>`");
+    }
+
+    private static Parsed parseLogs(String rest) {
+        if (rest.isEmpty()) return new Logs(20);
+        if (rest.matches("\\d{1,2}")) {
+            int n = Integer.parseInt(rest);
+            if (n >= 1 && n <= 50) return new Logs(n);
+        }
+        return new Invalid("Usage: `!logs` or `!logs <1-50>`");
     }
 
     private static Parsed parseRun(String rest) {
@@ -115,8 +136,12 @@ public final class BotCommand {
                 **Admin commands**
                 `!say <message>` send a message in guild chat as the bridge
                 `!mc <command>` run any Minecraft command, e.g. `!mc /lobby`
-                `!status` where the bridge is (limbo, lobby, offline)
+                `!status` where the bridge is (limbo, lobby, offline, stopped)
                 `!uptime` how long the bridge has been running and connected
-                `!restart` restart the game (the launch script brings it back)""";
+                `!start` start the game
+                `!stop` stop the game (the bot stays online)
+                `!restart` restart the game
+                `!logs` or `!logs <1-50>` last lines of the game log
+                `!rejoin` let auto-join try again after a ban or login pause""";
     }
 }

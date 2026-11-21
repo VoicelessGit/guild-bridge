@@ -19,10 +19,12 @@ jobs:
         run: ./gradlew :core:test
       - name: Build mod
         run: ./gradlew :mod:build
+      - name: Build supervisor
+        run: ./gradlew :supervisor:build
       - uses: actions/upload-artifact@v4
         with:
           name: guildbridge-jar
           path: |
             mod/build/libs/guildbridge-*.jar
-            !mod/build/libs/*-slim.jar
+            supervisor/build/libs/guildbridge-supervisor.jar
           if-no-files-found: error

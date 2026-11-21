@@ -27,8 +27,8 @@ final class LimboTracker {
 
     private final GameSender game;
     private final Consumer<State> onChange;
-    private final boolean autoLimbo;
-    private final long autoLimboDelayMillis;
+    private volatile boolean autoLimbo = true;
+    private volatile long autoLimboDelayMillis = 5_000;
     private volatile long lastLimboAttempt;
     /** Only one pending /limbo attempt at a time, however many locraw replies arrive. */
     private final java.util.concurrent.atomic.AtomicBoolean limboPending = new java.util.concurrent.atomic.AtomicBoolean();
@@ -43,11 +43,9 @@ final class LimboTracker {
     private volatile String lastServer;
     private volatile long stateSince = System.currentTimeMillis();
 
-    LimboTracker(GameSender game, Consumer<State> onChange, boolean autoLimbo, long autoLimboDelayMillis) {
+    LimboTracker(GameSender game, Consumer<State> onChange) {
         this.game = game;
         this.onChange = onChange;
-        this.autoLimbo = autoLimbo;
-        this.autoLimboDelayMillis = autoLimboDelayMillis;
         timer.scheduleWithFixedDelay(this::check, PERIODIC_MINUTES, PERIODIC_MINUTES, TimeUnit.MINUTES);
     }
 
@@ -87,6 +85,12 @@ final class LimboTracker {
         set(inLimbo ? State.IN_LIMBO : State.ON_HYPIXEL_NOT_LIMBO);
         if (!inLimbo) scheduleLimbo();
         return false;
+    }
+
+    /** Settings from the supervisor. */
+    void configure(boolean autoLimbo, long delayMillis) {
+        this.autoLimbo = autoLimbo;
+        this.autoLimboDelayMillis = Math.max(1_000, delayMillis);
     }
 
     boolean autoLimbo() {

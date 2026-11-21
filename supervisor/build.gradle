@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.gradleup.shadow' version "${shadow_version}"
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+}
+
+// Runs on Java 21 or newer, so the server can use the standard Ubuntu package (openjdk-21-jre-headless).
+tasks.withType(JavaCompile).configureEach { options.release = 21 }
+
+repositories { mavenCentral() }
+
+// Share the tested logic with the mod.
+sourceSets.main.java.srcDir '../core/src/main/java'
+sourceSets.main.resources.srcDir '../core/src/main/resources'
+
+dependencies {
+    implementation("net.dv8tion:JDA:${jda_version}") {
+        exclude module: 'opus-java' // voice, not needed
+    }
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'org.slf4j:slf4j-simple:2.0.16'
+}
+
+application {
+    mainClass = 'com.guildbridge.supervisor.Main'
+}
+
+shadowJar {
+    archiveBaseName = 'guildbridge-supervisor'
+    archiveClassifier = ''
+    archiveVersion = ''
+    mergeServiceFiles()
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'module-info.class'
+}
+
+assemble.dependsOn shadowJar
