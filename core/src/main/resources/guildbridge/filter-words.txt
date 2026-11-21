@@ -4,11 +4,11 @@
 #   3 = slurs and hate terms, censored
 # Matching already handles caps, leetspeak (sh1t, $hit), stretched letters (shiiit)
 # and the suffixes s/es/ed/er/ers/ing/y. List base words only.
+# Add "exact" after the severity to allow only the plural -s, for short words that start
+# normal words (spic would otherwise catch spicy and spices).
 #
-# To override without rebuilding, put your own list at config/guildbridge-filter.txt.
-#
-# TODO (Justin): add the severity 3 tier. Pull slurs and hate terms from a maintained list,
-# for example the LDNOOBW English list on GitHub, and tag each one 3.
+# To override without rebuilding, put your own copy named guildbridge-filter.txt next to the
+# supervisor jar (~/bridge on the server) and restart the bridge.
 
 # --- 1: mild (ignored by default) ---
 damn 1
@@ -44,3 +44,37 @@ jackass 2
 dumbass 2
 
 # --- 3: slurs and hate terms ---
+# Racial and ethnic
+nigger 3
+nigga 3
+niga 3
+nigguh 3
+negro 3
+coon 3 exact
+spic 3 exact
+spick 3 exact
+wetback 3
+beaner 3
+chink 3
+gook 3 exact
+jap 3 exact
+zipperhead 3
+kike 3
+paki 3 exact
+raghead 3
+towelhead 3
+sandnigger 3
+pajeet 3
+wog 3 exact
+groid 3 exact
+# Sexuality and gender
+fag 3 exact
+faggot 3
+fagot 3
+dyke 3
+homo 3 exact
+tranny 3
+shemale 3
+# Disability
+retard 3
+spaz 3

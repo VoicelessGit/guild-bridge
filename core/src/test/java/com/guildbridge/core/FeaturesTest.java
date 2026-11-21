@@ -211,4 +211,17 @@ class FeaturesTest {
         assertEquals(1, events.size(), "events: " + events);
         return events.get(0);
     }
+
+    @Test
+    void slurTierCatchesVariantsWithoutHittingNormalWords() {
+        ProfanityFilter f = ProfanityFilter.bundled(2);
+        for (String ok : new String[]{"spicy food", "the spices", "japan", "raccoon", "homosapiens",
+                "cockpit", "assassin", "class", "Dickens", "homework", "pakistan", "scrap"}) {
+            assertEquals(ok, f.censor(ok), ok);
+        }
+        assertFalse(f.censor("n1gger").contains("n1gger"));
+        assertFalse(f.censor("faggots").contains("faggots"));
+        assertFalse(f.censor("spics").contains("spics"));
+        assertFalse(f.censor("retarded").contains("retarded"));
+    }
 }

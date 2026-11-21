@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 /**
  * Stars out words at or above a severity threshold.
  *
- * <p>Word list format, one per line: {@code word severity}. Severity 1 = mild (damn, hell),
+ * <p>Word list format, one per line: {@code word severity [exact]}. Severity 1 = mild (damn, hell),
  * 2 = strong profanity, 3 = slurs and hate terms. Lines starting with # are comments.
  *
  * <p>Matching is case-insensitive, tolerates common leetspeak (sh1t, $hit), stretched letters
@@ -43,7 +43,10 @@ public final class ProfanityFilter {
                 if (line.isEmpty() || line.startsWith("#")) continue;
                 String[] parts = line.split("\\s+");
                 int severity = parts.length > 1 ? Integer.parseInt(parts[1]) : 3;
-                if (severity >= threshold) patterns.add(compile(parts[0].toLowerCase()));
+                // "exact" after the severity: only the word and its plural, no -y/-es/-er endings.
+                // For short words that are the start of normal words (spic: spicy, spices).
+                boolean exact = parts.length > 2 && parts[2].equalsIgnoreCase("exact");
+                if (severity >= threshold) patterns.add(compile(parts[0].toLowerCase(), exact));
             }
         }
     }
@@ -75,7 +78,7 @@ public final class ProfanityFilter {
         return patterns.isEmpty();
     }
 
-    private static Pattern compile(String word) {
+    private static Pattern compile(String word, boolean exact) {
         StringBuilder re = new StringBuilder("(?<![\\p{L}\\p{N}])");
         for (char c : word.toCharArray()) {
             re.append('[');
@@ -85,7 +88,7 @@ public final class ProfanityFilter {
             }
             re.append("]+");
         }
-        re.append(SUFFIX).append("(?![\\p{L}\\p{N}])");
+        re.append(exact ? "s?" : SUFFIX).append("(?![\\p{L}\\p{N}])");
         return Pattern.compile(re.toString(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
 }
