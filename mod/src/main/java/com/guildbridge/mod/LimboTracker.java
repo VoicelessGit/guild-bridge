@@ -25,6 +25,14 @@ final class LimboTracker {
     private static final long REPLY_WINDOW_MILLIS = 15_000;
     private static final long LIMBO_MIN_GAP_MILLIS = 30_000;
     private static final int MAX_QUICK_RETRIES = 4;
+    /** After this many unanswered /locraw in a row, assume a lobby and send /limbo anyway. */
+    private static final int MISSES_BEFORE_BLIND_LIMBO = 2;
+    private static final long SLOW_RETRY_SECONDS = 60;
+    /** Two world-change events often arrive together; one /locraw is enough for both. */
+    private static final long MIN_CHECK_GAP_MILLIS = 5_000;
+    private static final java.util.regex.Pattern LIMBO_LINE = java.util.regex.Pattern.compile(
+            "^You were spawned in Limbo\\.?$|^You are AFK\\.");
+    private volatile long lastCheckAt;
     private final java.util.concurrent.atomic.AtomicInteger missedReplies = new java.util.concurrent.atomic.AtomicInteger();
 
     private final GameSender game;
@@ -88,6 +96,15 @@ final class LimboTracker {
      * Returns false to hide the line from chat (it was our /locraw reply).
      */
     boolean allowChatLine(String line) {
+        String plain = com.guildbridge.core.TextUtil.stripFormatting(line).strip();
+        if (LIMBO_LINE.matcher(plain).find()) {
+            // Hypixel says this when /limbo or the AFK system puts us in limbo. No /locraw needed.
+            GuildBridgeClient.LOG.info("Location: limbo (from chat: {})", plain);
+            lastServer = "limbo";
+            missedReplies.set(0);
+            set(State.IN_LIMBO);
+            return true;
+        }
         if (System.currentTimeMillis() > awaitingReplyUntil) return true;
         var info = Locraw.parse(line);
         if (info.isEmpty()) {
@@ -152,7 +169,10 @@ final class LimboTracker {
             set(State.NOT_ON_HYPIXEL);
             return;
         }
-        long until = System.currentTimeMillis() + REPLY_WINDOW_MILLIS;
+        long now = System.currentTimeMillis();
+        if (now - lastCheckAt < MIN_CHECK_GAP_MILLIS && now < awaitingReplyUntil) return; // one already in flight
+        lastCheckAt = now;
+        long until = now + REPLY_WINDOW_MILLIS;
         awaitingReplyUntil = until;
         GuildBridgeClient.LOG.info("Location check: sending /locraw");
         game.queueUtility("locraw", null,
@@ -164,7 +184,19 @@ final class LimboTracker {
                 int n = missedReplies.incrementAndGet();
                 GuildBridgeClient.LOG.warn("Location check: no /locraw reply within {} s (miss {})",
                         REPLY_WINDOW_MILLIS / 1000, n);
-                if (n <= MAX_QUICK_RETRIES) timer.schedule(() -> safely(this::check), 15, TimeUnit.SECONDS);
+                if (!onHypixel()) return;
+                if (state == State.IN_LIMBO) return; // chat already told us; the 10-minute check carries on
+                if (state == State.NOT_ON_HYPIXEL) {
+                    lastServer = "unknown";
+                    set(State.ON_HYPIXEL_NOT_LIMBO); // connected, exact place unknown
+                }
+                if (n == MISSES_BEFORE_BLIND_LIMBO && state != State.IN_LIMBO) {
+                    GuildBridgeClient.LOG.info("Location check: Hypixel is not answering /locraw, trying /limbo anyway");
+                    scheduleLimbo();
+                }
+                // Keep asking: quickly at first, then once a minute until Hypixel answers.
+                timer.schedule(() -> safely(this::check),
+                        n <= MAX_QUICK_RETRIES ? 15 : SLOW_RETRY_SECONDS, TimeUnit.SECONDS);
             }
         }, REPLY_WINDOW_MILLIS + 500, TimeUnit.MILLISECONDS);
     }
