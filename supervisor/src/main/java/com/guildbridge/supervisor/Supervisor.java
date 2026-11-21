@@ -371,12 +371,14 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         var parsed = BotCommand.parse(msg.getContentRaw());
         if (parsed.isEmpty()) return;
         BotCommand.Parsed p = parsed.get();
-        boolean admin = admins.isAdmin(event.getAuthor().getId());
-        if (BotCommand.requiresAdmin(p) && !admin) {
+        String authorId = event.getAuthor().getId();
+        boolean owner = cfg.isOwner(authorId);
+        boolean admin = owner || admins.isAdmin(authorId);
+        if ((BotCommand.requiresAdmin(p) && !admin) || (BotCommand.requiresOwner(p) && !owner)) {
             DiscordBot.react(msg, "⛔");
             return;
         }
-        if (BotCommand.requiresAdmin(p)) {
+        if (BotCommand.requiresAdmin(p) || BotCommand.requiresOwner(p)) {
             Main.LOG.info("Admin {} used {}", event.getAuthor().getName(), msg.getContentRaw());
         }
 
@@ -417,7 +419,43 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             case BotCommand.GuildTop t -> runAndReply(msg, p,
                     t.day() == null ? "Guild top (today)" : "Guild top (" + t.day() + " days ago)", admin);
             case BotCommand.Run r -> runAndReply(msg, p, "/" + r.command(), admin);
+            case BotCommand.AdminAdd a -> DiscordBot.reply(msg, adminAdd(msg, a.userId()));
+            case BotCommand.AdminRemove a -> DiscordBot.reply(msg, adminRemove(a.userId()));
+            case BotCommand.AdminShow a -> DiscordBot.reply(msg, adminListText());
         }
+    }
+
+    private String adminAdd(Message msg, String id) {
+        if (cfg.isOwner(id)) return "That's the owner, who is always an admin.";
+        String name = msg.getMentions().getUsers().stream()
+                .filter(u -> u.getId().equals(id)).map(u -> u.getName()).findFirst().orElse("");
+        String note = (name.isEmpty() ? "" : name + ", ") + "added from Discord " + java.time.LocalDate.now();
+        try {
+            return admins.add(id, note) ? "<@" + id + "> is now an admin." : "<@" + id + "> is already an admin.";
+        } catch (Exception e) {
+            Main.LOG.warn("Could not update the admins file: {}", e.toString());
+            return "Could not update the admins file: " + e.getMessage();
+        }
+    }
+
+    private String adminRemove(String id) {
+        if (cfg.isOwner(id)) return "The owner is always an admin. Change `owner` in guildbridge.json instead.";
+        try {
+            return admins.remove(id) ? "<@" + id + "> is no longer an admin." : "<@" + id + "> wasn't an admin.";
+        } catch (Exception e) {
+            Main.LOG.warn("Could not update the admins file: {}", e.toString());
+            return "Could not update the admins file: " + e.getMessage();
+        }
+    }
+
+    private String adminListText() {
+        StringBuilder sb = new StringBuilder("**Owner:** <@" + cfg.owner.strip() + ">\n**Admins:**");
+        var list = admins.list().stream().filter(id -> !cfg.isOwner(id)).toList();
+        if (list.isEmpty()) sb.append(" none besides the owner");
+        for (String id : list) {
+            sb.append("\n<@").append(id).append("> (").append(id).append(")");
+        }
+        return sb.toString();
     }
 
     private void runAndReply(Message msg, BotCommand.Parsed p, String title, boolean admin) {

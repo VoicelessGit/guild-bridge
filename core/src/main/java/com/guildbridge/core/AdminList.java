@@ -4,7 +4,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.TreeSet;
 import java.util.Set;
 
 /**
@@ -17,7 +20,8 @@ public final class AdminList {
             # Guild Bridge admins: Discord user IDs, one per line.
             # Get an ID: Discord Settings > Advanced > Developer Mode on, then right-click a user > Copy User ID.
             # Everyone in the bridge channel can use the member commands (!commands lists them).
-            # Admins can also use !say, !mc, !status, !uptime and !restart.
+            # Admins can also use the admin commands. The owner (set in guildbridge.json) is always
+            # an admin and can manage this list from Discord with !admin add/remove/list.
             # Changes apply right away, no restart needed.
             """;
 
@@ -39,6 +43,47 @@ public final class AdminList {
     public synchronized boolean isAdmin(String userId) {
         reloadIfChanged();
         return userId != null && ids.contains(userId.strip());
+    }
+
+    /** All admin IDs in the file, sorted. */
+    public synchronized List<String> list() {
+        reloadIfChanged();
+        return new ArrayList<>(new TreeSet<>(ids));
+    }
+
+    /**
+     * Adds an ID as a new line, with an optional note as a comment. Returns false if it was
+     * already listed. Hand-written lines and comments are kept.
+     */
+    public synchronized boolean add(String userId, String note) throws IOException {
+        String id = userId.strip();
+        if (!id.matches("\\d{15,25}")) throw new IllegalArgumentException("Not a Discord user ID: " + id);
+        reloadIfChanged();
+        if (ids.contains(id)) return false;
+        createIfMissing();
+        String existing = Files.readString(file);
+        String clean = note == null ? "" : note.replaceAll("[\\r\\n#]", " ").strip();
+        String line = clean.isEmpty() ? id : id + "  # " + clean;
+        String sep = existing.isEmpty() || existing.endsWith("\n") ? "" : "\n";
+        Files.writeString(file, existing + sep + line + "\n");
+        loadedAt = null;
+        reloadIfChanged();
+        return true;
+    }
+
+    /** Removes every line holding this ID. Returns false if it was not listed. */
+    public synchronized boolean remove(String userId) throws IOException {
+        String id = userId.strip();
+        reloadIfChanged();
+        if (!ids.contains(id) || !Files.exists(file)) return false;
+        List<String> kept = new ArrayList<>();
+        for (String line : Files.readAllLines(file)) {
+            if (!line.replaceAll("#.*", "").strip().equals(id)) kept.add(line);
+        }
+        Files.writeString(file, String.join("\n", kept) + "\n");
+        loadedAt = null;
+        reloadIfChanged();
+        return true;
     }
 
     private void reloadIfChanged() {

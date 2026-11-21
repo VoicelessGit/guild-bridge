@@ -94,6 +94,8 @@ non-guild lines for 2.5 s after sending and returns `capture{id,text}`; supervis
 Members: `!commands`, `!g online`, `!g top`, `!g top <1-10>`.
 Admins (`guildbridge-admins.txt`, re-read on change): also `!say`, `!mc`, `!status`, `!uptime`,
 `!start`, `!stop`, `!restart`, `!logs [1-50]`, `!rejoin`. Non-admins get ⛔.
+Owner (`owner` in guildbridge.json, always an admin): `!admin add|remove <id or @mention>`, `!admin list`.
+These edit guildbridge-admins.txt in place and keep hand-written lines and comments.
 
 ## Mod behavior
 

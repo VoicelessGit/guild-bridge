@@ -18,6 +18,9 @@ final class SupervisorConfig {
     String botToken = "";
     String channelId = "";
     String discordPrefix = "[Discord]";
+    // Your Discord user ID. The owner is always an admin and is the only one who can use
+    // !admin add/remove/list. Blank = nobody can manage admins from Discord.
+    String owner = "";
 
     // --- Guild features ---
     boolean welcomeEnabled = true;
@@ -49,6 +52,11 @@ final class SupervisorConfig {
     int restartDelaySeconds = 30;
     int ipcPort = 25599;
 
+    boolean isOwner(String userId) {
+        return userId != null && owner != null && owner.strip().matches("\\d{15,25}")
+                && owner.strip().equals(userId.strip());
+    }
+
     boolean isComplete() {
         return botToken != null && !botToken.isBlank()
                 && channelId != null && channelId.strip().matches("\\d{15,25}");
@@ -59,6 +67,7 @@ final class SupervisorConfig {
         if (Files.exists(file)) c = GSON.fromJson(Files.readString(file), SupervisorConfig.class);
         if (c == null) c = new SupervisorConfig();
         if (c.alertPing == null) c.alertPing = new ArrayList<>();
+        if (c.owner == null) c.owner = "";
         // Rewrite so new settings appear in the file with their defaults.
         Files.writeString(file, GSON.toJson(c));
         return c;

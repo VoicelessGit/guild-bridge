@@ -10,6 +10,7 @@ import java.util.Set;
  * <p>Members (anyone in the channel): !commands, !g online, !g top [1-10].
  * Admins (listed in guildbridge-admins.txt): everything above plus !say, !mc, !status, !uptime,
  * !start, !stop, !restart, !logs [lines], !rejoin.
+ * Owner (set in guildbridge.json): everything above plus !admin add/remove/list.
  *
  * <p>Security: nothing here ever reaches a shell. Each command maps to fixed Minecraft chat
  * commands, or to admin-only text that goes through the same sanitizing as normal chat.
@@ -36,11 +37,16 @@ public final class BotCommand {
     /** Clears a ban or duplicate-login pause and lets auto-join try again. */
     public record Rejoin() implements Parsed {}
 
+    // Owner commands
+    public record AdminAdd(String userId) implements Parsed {}
+    public record AdminRemove(String userId) implements Parsed {}
+    public record AdminShow() implements Parsed {}
+
     /** A known command used wrongly; message is the usage hint to show. */
     public record Invalid(String message) implements Parsed {}
 
     private static final Set<String> KNOWN = Set.of(
-            "commands", "g", "say", "mc", "status", "uptime", "restart", "start", "stop", "logs", "rejoin");
+            "commands", "g", "say", "mc", "status", "uptime", "restart", "start", "stop", "logs", "rejoin", "admin");
 
     private BotCommand() {}
 
@@ -57,6 +63,11 @@ public final class BotCommand {
         return p instanceof Say || p instanceof Run || p instanceof Status || p instanceof Uptime
                 || p instanceof Restart || p instanceof Start || p instanceof Stop
                 || p instanceof Logs || p instanceof Rejoin;
+    }
+
+    /** Commands only the owner may use. */
+    public static boolean requiresOwner(Parsed p) {
+        return p instanceof AdminAdd || p instanceof AdminRemove || p instanceof AdminShow;
     }
 
     /** Parses a message. Empty means it is not a command at all. */
@@ -78,6 +89,7 @@ public final class BotCommand {
             case "g" -> parseGuild(rest);
             case "say" -> rest.isEmpty() ? new Invalid("Usage: `!say <message>`") : new Say(rest);
             case "mc" -> parseRun(rest);
+            case "admin" -> parseAdmin(rest);
             default -> new Invalid("Unknown command. Try `!commands`.");
         });
     }
@@ -94,6 +106,21 @@ public final class BotCommand {
             return new Invalid("Usage: `!g top` or `!g top <1-10>`");
         }
         return new Invalid("Usage: `!g online`, `!g top` or `!g top <1-10>`");
+    }
+
+    private static final String ADMIN_USAGE = "Usage: `!admin add <user id or @mention>`, "
+            + "`!admin remove <user id or @mention>` or `!admin list`";
+
+    private static Parsed parseAdmin(String rest) {
+        String[] args = rest.split("\\s+");
+        String sub = args[0].toLowerCase(Locale.ROOT);
+        if (sub.equals("list") && args.length == 1) return new AdminShow();
+        if ((sub.equals("add") || sub.equals("remove")) && args.length == 2) {
+            // Accept a raw ID or a mention like <@123> / <@!123>.
+            String id = args[1].replaceAll("^<@!?(\\d+)>$", "$1");
+            if (id.matches("\\d{15,25}")) return sub.equals("add") ? new AdminAdd(id) : new AdminRemove(id);
+        }
+        return new Invalid(ADMIN_USAGE);
     }
 
     private static Parsed parseLogs(String rest) {
@@ -142,6 +169,11 @@ public final class BotCommand {
                 `!stop` stop the game (the bot stays online)
                 `!restart` restart the game
                 `!logs` or `!logs <1-50>` last lines of the game log
-                `!rejoin` let auto-join try again after a ban or login pause""";
+                `!rejoin` let auto-join try again after a ban or login pause
+
+                **Owner commands**
+                `!admin add <id or @mention>` make someone an admin
+                `!admin remove <id or @mention>` remove an admin
+                `!admin list` show the admins""";
     }
 }
