@@ -217,16 +217,16 @@ final class HypixelApi implements PvData {
 
     /** Tiny time-based cache. Failures are not cached. */
     private static final class Cache<V> {
-        private record Entry<V>(V value, long expires) {}
+        private record Slot<V>(V value, long expires) {}
 
         private final int max;
-        private final Map<String, Entry<V>> map;
+        private final Map<String, Slot<V>> map;
 
         Cache(int max) {
             this.max = max;
             this.map = new LinkedHashMap<>(16, 0.75f, true) {
                 @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Entry<V>> eldest) {
+                protected boolean removeEldestEntry(Map.Entry<String, Slot<V>> eldest) {
                     return size() > Cache.this.max;
                 }
             };
@@ -234,12 +234,12 @@ final class HypixelApi implements PvData {
 
         V get(String k, long ttl, Supplier<? extends V> load) {
             synchronized (this) {
-                Entry<V> e = map.get(k);
+                Slot<V> e = map.get(k);
                 if (e != null && e.expires() > System.currentTimeMillis()) return e.value();
             }
             V v = load.get();
             synchronized (this) {
-                map.put(k, new Entry<>(v, System.currentTimeMillis() + ttl));
+                map.put(k, new Slot<>(v, System.currentTimeMillis() + ttl));
             }
             return v;
         }
