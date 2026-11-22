@@ -33,6 +33,11 @@ final class LimboTracker {
     private static final java.util.regex.Pattern LIMBO_LINE = java.util.regex.Pattern.compile(
             "^You were spawned in Limbo\\.?$|^You are AFK\\.");
     private volatile long lastCheckAt;
+    /** Misses in a row after which the connection is treated as stuck and redone. */
+    private static final int MISSES_BEFORE_REJOIN = 5;
+    private static final long REJOIN_MIN_GAP_MILLIS = 10 * 60_000;
+    private volatile long lastRejoinAt;
+    private volatile Runnable onUnresponsive = () -> {};
     private final java.util.concurrent.atomic.AtomicInteger missedReplies = new java.util.concurrent.atomic.AtomicInteger();
 
     private final GameSender game;
@@ -71,6 +76,14 @@ final class LimboTracker {
     /** When the current state started, for !uptime. */
     long stateSince() {
         return stateSince;
+    }
+
+    /**
+     * Called when Hypixel ignores every command for a while (seen on fresh logins: guild chat,
+     * /locraw and /limbo all silently dropped until a new connection). The client reconnects.
+     */
+    void setOnUnresponsive(Runnable r) {
+        onUnresponsive = r;
     }
 
     /** Call on server join and on every world change. */
@@ -190,6 +203,14 @@ final class LimboTracker {
                     lastServer = "unknown";
                     set(State.ON_HYPIXEL_NOT_LIMBO); // connected, exact place unknown
                 }
+                if (n == MISSES_BEFORE_REJOIN && state != State.IN_LIMBO
+                        && System.currentTimeMillis() - lastRejoinAt > REJOIN_MIN_GAP_MILLIS) {
+                    lastRejoinAt = System.currentTimeMillis();
+                    GuildBridgeClient.LOG.warn("Location check: Hypixel has ignored {} commands in a row ({}), reconnecting",
+                            n, clientLoadedState());
+                    onUnresponsive.run();
+                    return;
+                }
                 if (n == MISSES_BEFORE_BLIND_LIMBO && state != State.IN_LIMBO) {
                     GuildBridgeClient.LOG.info("Location check: Hypixel is not answering /locraw, trying /limbo anyway");
                     scheduleLimbo();
@@ -199,6 +220,18 @@ final class LimboTracker {
                         n <= MAX_QUICK_RETRIES ? 15 : SLOW_RETRY_SECONDS, TimeUnit.SECONDS);
             }
         }, REPLY_WINDOW_MILLIS + 500, TimeUnit.MILLISECONDS);
+    }
+
+    /** For the log: whether the client thinks it finished loading into the world. */
+    private static String clientLoadedState() {
+        try {
+            Object player = Minecraft.getInstance().player;
+            if (player == null) return "no player";
+            var m = player.getClass().getMethod("hasClientLoaded");
+            return "client loaded: " + m.invoke(player);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return "client loaded: unknown";
+        }
     }
 
     private void set(State next) {

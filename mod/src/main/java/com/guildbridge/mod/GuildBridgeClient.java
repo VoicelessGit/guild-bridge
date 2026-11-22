@@ -46,6 +46,16 @@ public class GuildBridgeClient implements ClientModInitializer {
 
         game = new GameSender(1500);
         limbo = new LimboTracker(game, this::limboChanged);
+        limbo.setOnUnresponsive(() -> Minecraft.getInstance().execute(() -> {
+            try {
+                var conn = Minecraft.getInstance().getConnection();
+                // "connection lost" makes the supervisor file it as a network blip, not an alert.
+                if (conn != null) conn.getConnection().disconnect(net.minecraft.network.chat.Component.literal(
+                        "Connection lost: Hypixel stopped answering commands, reconnecting"));
+            } catch (RuntimeException e) {
+                LOG.warn("Could not reconnect: {}", e.toString());
+            }
+        }));
         autoJoin = new AutoJoin();
         ipc = new IpcClient(Integer.parseInt(port), secret,
                 () -> Minecraft.getInstance().getUser().getName(), this::onSupervisorMessage);
