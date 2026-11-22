@@ -21,7 +21,7 @@ sudo apt update && sudo apt install -y openjdk-21-jre-headless
 mkdir -p ~/bridge   # put the supervisor jar, headlessmc-launcher-linux-x64 and your config files here
 cd ~/bridge && chmod +x headlessmc-launcher-linux-x64
 ./headlessmc-launcher-linux-x64      # then: login, account select <name>, launch fabric 26.2 -lwjgl, Ctrl+C
-mkdir -p ~/.minecraft/fabric-26.2/mods && mv guildbridge-0.2.0.jar fabric-api-*.jar ~/.minecraft/fabric-26.2/mods/
+mkdir -p ~/.minecraft/fabric-26.2/mods && mv guildbridge-0.2.1.jar fabric-api-*.jar ~/.minecraft/fabric-26.2/mods/
 printf "onboardAccessibility:false\nnarrator:0\n" >> ~/.minecraft/fabric-26.2/options.txt
 java -jar guildbridge-supervisor.jar # first run writes guildbridge.json; fill it in and run again
 ```

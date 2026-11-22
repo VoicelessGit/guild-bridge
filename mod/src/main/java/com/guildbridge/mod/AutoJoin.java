@@ -32,6 +32,11 @@ final class AutoJoin {
     /** Best-effort: the open screen, used only as the "back" screen for the connect screen. */
     private volatile Screen currentScreen;
     private volatile boolean started;
+    private volatile long startedAt;
+    private volatile boolean sawScreen;
+    private boolean loggedWaiting;
+    /** Give up waiting for the loading screen after this long and try anyway. */
+    private static final long MAX_LOAD_WAIT_MILLIS = 180_000;
     private long nextAttemptAt;
     private int failures;
 
@@ -65,8 +70,9 @@ final class AutoJoin {
     /** Call from ClientLifecycleEvents.CLIENT_STARTED. */
     void clientStarted() {
         started = true;
-        nextAttemptAt = System.currentTimeMillis() + FIRST_DELAY_MILLIS;
-        if (enabled()) GuildBridgeClient.LOG.info("Game started, first auto-join attempt in 5 s");
+        startedAt = System.currentTimeMillis();
+        nextAttemptAt = startedAt + FIRST_DELAY_MILLIS;
+        if (enabled()) GuildBridgeClient.LOG.info("Game started, joining once it finishes loading");
     }
 
     /** Call when a join succeeds, so the next disconnect starts with a short wait again. */
@@ -77,9 +83,44 @@ final class AutoJoin {
     /** Call from ScreenEvents.AFTER_INIT. */
     void screenOpened(Screen screen) {
         currentScreen = screen;
+        if (!(screen instanceof ConnectScreen)) sawScreen = true;
         ScreenEvents.remove(screen).register(closed -> {
             if (currentScreen == closed) currentScreen = null;
         });
+    }
+
+    /**
+     * True once the startup loading overlay is gone. Read by reflection (the field is private);
+     * if that fails, the first real screen or a long timeout counts as loaded.
+     */
+    private boolean finishedLoading(Minecraft mc, long now) {
+        if (now - startedAt > MAX_LOAD_WAIT_MILLIS) return true;
+        Boolean overlayGone = overlayGone(mc);
+        if (overlayGone != null) return overlayGone;
+        return sawScreen;
+    }
+
+    private static java.lang.reflect.Field overlayField;
+    private static boolean overlayLookupFailed;
+
+    private static Boolean overlayGone(Minecraft mc) {
+        try {
+            if (overlayField == null && !overlayLookupFailed) {
+                for (var f : Minecraft.class.getDeclaredFields()) {
+                    if (f.getType().getSimpleName().equals("Overlay")) {
+                        f.setAccessible(true);
+                        overlayField = f;
+                        break;
+                    }
+                }
+                if (overlayField == null) overlayLookupFailed = true;
+            }
+            if (overlayField == null) return null;
+            return overlayField.get(mc) == null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            overlayLookupFailed = true;
+            return null;
+        }
     }
 
     /** Call from ClientTickEvents.END_CLIENT_TICK. */
@@ -90,6 +131,16 @@ final class AutoJoin {
         if (currentScreen instanceof ConnectScreen) return;           // an attempt is still connecting
 
         long now = System.currentTimeMillis();
+        // Joining while the game is still loading its resources left the connection half-broken
+        // on the server (Nov 2026): Hypixel's messages arrived but nothing we sent went anywhere.
+        if (!finishedLoading(mc, now)) {
+            if (!loggedWaiting) {
+                GuildBridgeClient.LOG.info("Waiting for the game to finish loading before joining");
+                loggedWaiting = true;
+            }
+            nextAttemptAt = Math.max(nextAttemptAt, now + FIRST_DELAY_MILLIS);
+            return;
+        }
         if (now < nextAttemptAt) return;
 
         long delay = Math.min(maxDelayMillis, baseDelayMillis << Math.min(failures, 10));
@@ -98,7 +149,7 @@ final class AutoJoin {
 
         GuildBridgeClient.LOG.info("Auto-joining {} (attempt {}, next retry in {} s if this fails)",
                 address, failures, delay / 1000);
-        Screen parent = currentScreen != null ? currentScreen : new TitleScreen();
+        Screen parent = currentScreen != null && !(currentScreen instanceof ConnectScreen) ? currentScreen : new TitleScreen();
         ServerData data = new ServerData("Hypixel", address, ServerData.Type.OTHER);
         try {
             ConnectScreen.startConnecting(parent, mc, ServerAddress.parseString(address), data, false, null);

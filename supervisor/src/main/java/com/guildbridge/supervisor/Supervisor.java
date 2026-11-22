@@ -188,6 +188,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             case "sent" -> onSent(Ipc.num(m, "id", -1));
             case "rejected" -> onRejected(Ipc.num(m, "id", -1), Ipc.str(m, "reason"));
             case "capture" -> onCapture(Ipc.num(m, "id", -1), Ipc.str(m, "text"));
+            case "stuck" -> onStuck();
             default -> { }
         }
     }
@@ -262,6 +263,19 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         if (!(first && "NOT_ON_HYPIXEL".equals(state))) bot.post(DiscordEmbed.notice(text, "IN_LIMBO".equals(state)));
         if ("IN_LIMBO".equals(state)) limiter.reset("not-in-limbo");
         updatePresence();
+    }
+
+    /** The mod saw Hypixel ignore everything it sent; only a fresh game gets a working connection. */
+    private void onStuck() {
+        long now = System.currentTimeMillis();
+        Main.LOG.warn("The game's connection is stuck (Hypixel ignores everything it sends), restarting the game");
+        if (limiter.count("stuck", now, WINDOW_30_MIN) >= 2) {
+            alert("stuck", "The bridge's connection keeps getting stuck: Hypixel ignores everything it sends, "
+                    + "even after a restart. It will keep trying; check `!logs` if it doesn't recover.", true);
+        } else {
+            bot.post(DiscordEmbed.notice("Bridge connection got stuck (Hypixel stopped answering). Restarting the game.", false));
+        }
+        game.restart(this::askModToQuit);
     }
 
     private void onDisconnect(String reason) {
