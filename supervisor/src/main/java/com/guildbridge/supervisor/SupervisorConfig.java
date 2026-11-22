@@ -25,7 +25,11 @@ final class SupervisorConfig {
     // --- In-game commands (!sb, !skill, !bz ...) ---
     // Free personal key from https://developer.hypixel.net. Needed for profile commands.
     String hypixelApiKey = "";
-    int playerCommandCooldownSeconds = 10;
+    // In game, answers go out one at a time this far apart; commands asked meanwhile wait in line.
+    int gameCommandGapSeconds = 7;
+    int maxQueuedGameCommands = 10;
+    // In Discord, how often one person can use a profile command.
+    int discordCommandCooldownSeconds = 3;
     // What !commands says in game.
     String commandsHint = "Full command list: type !commands in our Discord's bridge channel.";
     // Time zone for dates in !version.

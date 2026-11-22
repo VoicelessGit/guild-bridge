@@ -52,6 +52,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
+3. emoji-datasource by Cal Henderson (MIT), emoji names in core/src/main/resources/guildbridge/emoji.tsv
+   https://github.com/iamcal/emoji-data
+
 The Node helper installs these MIT-licensed npm packages on the server (not bundled):
 - skyhelper-networth (Altpapier) https://github.com/Altpapier/SkyHelper-Networth
 - lilyweight (Antonio32A) https://github.com/Antonio32A/lilyweight

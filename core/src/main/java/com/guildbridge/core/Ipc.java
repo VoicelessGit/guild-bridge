@@ -120,6 +120,11 @@ public final class Ipc {
                 o.addProperty("text", a.text());
                 o.addProperty("joinedMember", a.joinedMember());
             }
+            case BridgeEvent.Whisper w -> {
+                o.addProperty("kind", "whisper");
+                o.addProperty("name", w.name());
+                o.addProperty("message", w.message());
+            }
         }
         return o;
     }
@@ -131,6 +136,11 @@ public final class Ipc {
         if (kind == null) return null;
         try {
             return switch (kind) {
+                case "whisper" -> {
+                    String name = str(o, "name");
+                    String message = str(o, "message");
+                    yield name == null || message == null ? null : new BridgeEvent.Whisper(name, message);
+                }
                 case "chat" -> {
                     String name = str(o, "name");
                     String message = str(o, "message");

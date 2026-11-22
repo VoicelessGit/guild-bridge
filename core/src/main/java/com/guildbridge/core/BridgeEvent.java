@@ -18,12 +18,19 @@ public sealed interface BridgeEvent {
      */
     record Announcement(String text, String joinedMember) implements BridgeEvent {}
 
+    /**
+     * A private message to the bridge account ("From [MVP+] Steve: 4F7K2Q"). Used only for
+     * account verification; never relayed.
+     */
+    record Whisper(String name, String message) implements BridgeEvent {}
+
     /** The player this event is about, or null for announcements. */
     default String name() {
         return switch (this) {
             case Chat c -> c.name();
             case Status s -> s.name();
             case Announcement a -> null;
+            case Whisper w -> w.name();
         };
     }
 }

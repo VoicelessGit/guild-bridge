@@ -20,6 +20,17 @@ public final class ChatParser {
 
     private ChatParser() {}
 
+    /** "From [MVP+] Steve: hello" (a private message to us). "To ..." lines are ours and ignored. */
+    private static final Pattern WHISPER = Pattern.compile(
+            "^From (?:\\[[A-Z+]+\\] )?(?<name>\\w{1,16}): (?<msg>.+)$");
+
+    /** A private message to the bridge account, if this line is one. Separate from {@link #parse}. */
+    public static Optional<BridgeEvent.Whisper> whisper(String line) {
+        if (line == null) return Optional.empty();
+        Matcher m = WHISPER.matcher(TextUtil.stripFormatting(line).strip());
+        return m.matches() ? Optional.of(new BridgeEvent.Whisper(m.group("name"), m.group("msg").strip())) : Optional.empty();
+    }
+
     public static Optional<BridgeEvent> parse(String line) {
         if (line == null) return Optional.empty();
         String clean = TextUtil.stripFormatting(line).strip();

@@ -15,11 +15,10 @@ final class HelpPages {
     }
 
     static List<MessageEmbed> pages() {
-        StringBuilder bot = new StringBuilder(BotCommand.helpText()).append("\n\n**In game (guild chat)**\n");
-        StringBuilder pv = new StringBuilder("Use these in guild chat in game. Account linking isn't available yet, "
-                + "so they don't work here in Discord.\n"
-                + "Leave out `[user]` to look yourself up. `[profile]` is a profile's fruit name; "
-                + "without it your active profile is used.\n\n");
+        StringBuilder bot = new StringBuilder(BotCommand.helpText()).append("\n\n**In game or Discord**\n");
+        StringBuilder pv = new StringBuilder("Use these in guild chat in game or here in Discord.\n"
+                + "In game, leave out `[user]` to look yourself up. In Discord, add a name unless you've linked your "
+                + "account with `/verify`. `[profile]` is a profile's fruit name; without it the active profile is used.\n\n");
         for (PvCommands.Spec s : PvCommands.ALL) {
             String aliases = s.aliases().isEmpty() ? "" : " (also " + String.join(", ", s.aliases().stream().map(a -> "!" + a).toList()) + ")";
             String line = "`" + s.usage() + "` " + s.help() + aliases + "\n";

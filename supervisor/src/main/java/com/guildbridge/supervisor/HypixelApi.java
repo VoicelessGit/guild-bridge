@@ -76,6 +76,15 @@ final class HypixelApi implements PvData {
         });
     }
 
+    @Override
+    public String nameOf(String uuid) {
+        return players.get("u:" + uuid, 24 * 60 * MINUTE, () -> {
+            JsonObject o = getJson("https://sessionserver.mojang.com/session/minecraft/profile/" + uuid, null, false);
+            if (o == null || !o.has("name")) throw new ApiException("Unknown player.");
+            return new Player(o.get("name").getAsString(), uuid);
+        }).name();
+    }
+
     // ----- keyed SkyBlock data -----
 
     @Override

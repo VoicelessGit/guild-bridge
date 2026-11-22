@@ -51,7 +51,8 @@ public final class Main {
         sup.attach(bot, ipc, game);
         HypixelApi api = new HypixelApi(() -> cfg.hypixelApiKey);
         NodeHelper node = new NodeHelper(dir);
-        sup.setPvService(new PvService(api, node, sup::versionLine, () -> cfg.commandsHint));
+        sup.setPvService(new PvService(api, node, sup::versionLine, () -> cfg.commandsHint), api,
+                new com.guildbridge.core.LinkStore(dir.resolve("guildbridge-links.json")));
         node.warmUp();
         if (!api.hasKey()) LOG.warn("No hypixelApiKey in guildbridge.json: profile commands (!sb, !skill...) will say they aren't set up.");
         Runtime.getRuntime().addShutdownHook(new Thread(sup::shutdown, "shutdown"));

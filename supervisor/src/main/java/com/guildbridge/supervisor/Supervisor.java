@@ -76,9 +76,14 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
     private volatile long lastMemberCommandAt;
     private volatile com.guildbridge.core.BuildInfo modInfo;   // reported by the mod in its hello
     private PvService pv;
-    /** In-game command cooldown per player (lowercase name to last use). */
-    private final Map<String, Long> playerCommandAt = new ConcurrentHashMap<>();
-    private final java.util.concurrent.atomic.AtomicInteger commandsInFlight = new java.util.concurrent.atomic.AtomicInteger();
+    /** In-game commands waiting to be answered, oldest first. */
+    private final java.util.concurrent.LinkedBlockingDeque<BridgeEvent.Chat> gameCommands = new java.util.concurrent.LinkedBlockingDeque<>();
+    /** Discord profile command cooldown per user id. */
+    private final Map<String, Long> discordCommandAt = new ConcurrentHashMap<>();
+    private PvData data;
+    private com.guildbridge.core.LinkStore links;
+    private final com.guildbridge.core.Verifier<net.dv8tion.jda.api.interactions.InteractionHook> verifier = new com.guildbridge.core.Verifier<>();
+    private volatile String bridgeAccount;
     /** Last few answers sent; Hypixel and the mod refuse a line repeated this soon. */
     private final java.util.ArrayDeque<String> recentAnswers = new java.util.ArrayDeque<>();
 
@@ -91,8 +96,15 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         this.limiter = new AlertLimiter(Math.max(1, cfg.alertCooldownMinutes) * 60_000L);
     }
 
-    void setPvService(PvService pv) {
+    void setPvService(PvService pv, PvData data, com.guildbridge.core.LinkStore links) {
         this.pv = pv;
+        this.data = data;
+        this.links = links;
+        Thread worker = new Thread(this::gameCommandLoop, "game-commands");
+        worker.setDaemon(true);
+        worker.start();
+        bot.setOnSlash(this::onSlash);
+        bot.registerSlashCommands();
     }
 
     String versionLine() {
@@ -149,6 +161,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         modInfo = new com.guildbridge.core.BuildInfo(modVersion == null ? "?" : modVersion, modBuilt);
         modConnected = true;
         guard = new LoopGuard(account);
+        bridgeAccount = account;
         long now = System.currentTimeMillis();
         lastHeartbeat = now;
         lastModContact = now;
@@ -195,6 +208,10 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
 
     private void onGameEvent(BridgeEvent event) {
         if (event == null) return;
+        if (event instanceof BridgeEvent.Whisper w) {
+            onWhisper(w);
+            return; // private, never relayed
+        }
         LoopGuard g = guard;
         if (g != null && !g.shouldRelay(event)) return;
         // In-game commands are answered in game and not relayed to Discord.
@@ -206,32 +223,140 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         if (event instanceof BridgeEvent.Announcement a && a.joinedMember() != null) welcome(a.joinedMember());
     }
 
-    /** A guild member typed !something in guild or officer chat. */
+    /** A guild member typed !something in guild or officer chat: it waits in line. */
     private void onGameCommand(BridgeEvent.Chat c) {
         if (pv == null) return;
-        String who = c.name().toLowerCase(java.util.Locale.ROOT);
-        long now = System.currentTimeMillis();
-        Long last = playerCommandAt.get(who);
-        if (last != null && now - last < Math.max(1, cfg.playerCommandCooldownSeconds) * 1000L) return; // quietly ignore spam
-        // Keep the bridge from flooding chat: only a few answers queue up at once.
-        if (commandsInFlight.get() >= 4) return;
-        playerCommandAt.put(who, now);
-        commandsInFlight.incrementAndGet();
-        String prefix = c.channel() == BridgeEvent.Channel.OFFICER ? "oc " : "gc ";
-        Main.LOG.info("{} used {}", c.name(), c.message().strip());
-        pv.answer(c.message(), c.name()).whenComplete((line, err) -> {
-            commandsInFlight.decrementAndGet();
-            if (line == null || line.isBlank() || !modConnected) return;
-            synchronized (recentAnswers) {
-                // Two people asking the same thing would get an identical line, which would be blocked.
-                if (recentAnswers.contains(line)) line = line + " (for " + c.name() + ")";
-                recentAnswers.addLast(line);
-                while (recentAnswers.size() > 3) recentAnswers.removeFirst();
+        long fromSame = gameCommands.stream().filter(q -> q.name().equalsIgnoreCase(c.name())).count();
+        // One person can't fill the line, and the line can't grow without end.
+        if (fromSame >= 2 || gameCommands.size() >= Math.max(1, cfg.maxQueuedGameCommands)) {
+            Main.LOG.info("Ignored {} from {} (too many commands waiting)", c.message().strip(), c.name());
+            return;
+        }
+        Main.LOG.info("{} used {} ({} waiting)", c.name(), c.message().strip(), gameCommands.size());
+        gameCommands.addLast(c);
+    }
+
+    /** Answers in-game commands one at a time, at least gameCommandGapSeconds apart. */
+    private void gameCommandLoop() {
+        long lastSent = 0;
+        while (true) {
+            try {
+                BridgeEvent.Chat c = gameCommands.takeFirst();
+                String line;
+                try {
+                    line = pv.answer(c.message(), c.name()).get(90, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    line = "That command took too long, try again.";
+                } catch (java.util.concurrent.ExecutionException e) {
+                    line = "Something went wrong with that command.";
+                }
+                long wait = lastSent + Math.max(1, cfg.gameCommandGapSeconds) * 1000L - System.currentTimeMillis();
+                if (wait > 0) Thread.sleep(wait);
+                if (sendGameAnswer(c, line)) lastSent = System.currentTimeMillis();
+            } catch (InterruptedException e) {
+                return;
+            } catch (RuntimeException e) {
+                Main.LOG.warn("Game command loop error: {}", e.toString());
             }
-            String cmd = OutgoingSanitizer.toGuildCommand("", line, null, "");
-            if (cmd == null) return;
-            if (cmd.startsWith("gc ")) cmd = prefix + cmd.substring(3);
-            ipc.send(Ipc.command(ids.incrementAndGet(), cmd, true, false));
+        }
+    }
+
+    private boolean sendGameAnswer(BridgeEvent.Chat c, String line) {
+        if (line == null || line.isBlank() || !modConnected) return false;
+        synchronized (recentAnswers) {
+            // Two people asking the same thing would get an identical line, which would be blocked.
+            if (recentAnswers.contains(line)) line = line + " (for " + c.name() + ")";
+            recentAnswers.addLast(line);
+            while (recentAnswers.size() > 3) recentAnswers.removeFirst();
+        }
+        String cmd = OutgoingSanitizer.toGuildCommand("", line, null, "");
+        if (cmd == null) return false;
+        if (cmd.startsWith("gc ") && c.channel() == BridgeEvent.Channel.OFFICER) cmd = "oc " + cmd.substring(3);
+        ipc.send(Ipc.command(ids.incrementAndGet(), cmd, true, false));
+        return true;
+    }
+
+    // ----- account linking -----
+
+    private void onWhisper(BridgeEvent.Whisper w) {
+        if (links == null) return;
+        var done = verifier.onWhisper(w.name(), w.message(), System.currentTimeMillis());
+        if (done.isEmpty()) return; // not a code we issued for this player: ignore quietly
+        var p = done.get();
+        try {
+            var moved = links.link(p.discordId(), p.uuid(), p.name(), System.currentTimeMillis());
+            Main.LOG.info("Linked Discord user {} to {}{}", p.discordId(), p.name(),
+                    moved.map(old -> " (moved from Discord user " + old + ")").orElse(""));
+            p.handle().editOriginal("✅ Linked to **" + p.name() + "**. Profile commands in Discord now use your account "
+                    + "when you leave out the name.").queue(null, err -> {});
+        } catch (IOException e) {
+            Main.LOG.warn("Could not save the link: {}", e.toString());
+            p.handle().editOriginal("The code matched, but saving the link failed. Try /verify again later.").queue(null, err -> {});
+        }
+    }
+
+    private void onSlash(net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent e) {
+        String userId = e.getUser().getId();
+        switch (e.getName()) {
+            case "verify" -> {
+                var opt = e.getOption("username");
+                String name = opt == null ? "" : opt.getAsString().strip();
+                if (!name.matches("[A-Za-z0-9_]{1,16}")) {
+                    e.reply("That isn't a valid Minecraft name.").setEphemeral(true).queue(null, err -> {});
+                    return;
+                }
+                e.deferReply(true).queue(null, err -> {});
+                var hook = e.getHook();
+                java.util.concurrent.CompletableFuture.runAsync(() -> {
+                    try {
+                        HypixelApi.Player pl = data.player(name);
+                        var pending = verifier.issue(userId, pl.name(), pl.uuid(), hook, System.currentTimeMillis());
+                        String bridge = bridgeAccount != null ? bridgeAccount : "the bridge account";
+                        String text = "To link **" + pl.name() + "**, whisper this in game within 5 minutes:\n"
+                                + "`/msg " + bridge + " " + pending.code() + "`\n"
+                                + "This message updates when it works.";
+                        if (!modConnected) text += "\n⚠️ The bridge is offline right now, so wait until it's back before whispering.";
+                        hook.editOriginal(text).queue(null, err -> {});
+                    } catch (HypixelApi.ApiException ex) {
+                        hook.editOriginal(ex.getMessage()).queue(null, err -> {});
+                    }
+                });
+            }
+            case "unlink" -> {
+                String text;
+                try {
+                    text = links != null && links.unlink(userId).isPresent()
+                            ? "Unlinked. Use /verify to link again." : "Your Discord account isn't linked.";
+                } catch (IOException ex) {
+                    text = "Couldn't save that, try again later.";
+                }
+                e.reply(text).setEphemeral(true).queue(null, err -> {});
+            }
+            default -> { }
+        }
+    }
+
+    /** A profile or market command typed in Discord. */
+    private void onDiscordPvCommand(Message msg, String raw, com.guildbridge.core.sb.PvCommands.Spec spec) {
+        if (pv == null) return;
+        String userId = msg.getAuthor().getId();
+        long now = System.currentTimeMillis();
+        Long last = discordCommandAt.get(userId);
+        if (last != null && now - last < Math.max(0, cfg.discordCommandCooldownSeconds) * 1000L) {
+            DiscordBot.react(msg, "⏳");
+            return;
+        }
+        discordCommandAt.put(userId, now);
+        var link = links == null ? java.util.Optional.<com.guildbridge.core.LinkStore.Link>empty() : links.get(userId);
+        HypixelApi.Player self = link.map(l -> new HypixelApi.Player(l.name(), l.uuid())).orElse(null);
+        Main.LOG.info("{} used {} in Discord", msg.getAuthor().getName(), raw.strip());
+        pv.answer(raw, null, self).whenComplete((line, err) -> {
+            if (line == null) return;
+            var eb = new net.dv8tion.jda.api.EmbedBuilder()
+                    .setDescription(net.dv8tion.jda.api.utils.MarkdownSanitizer.escape(line))
+                    .setColor(0x00AAAA);
+            if (link.isEmpty() && spec.player()) eb.setFooter("Tip: link your account with /verify so you can leave out your name.");
+            DiscordBot.replyEmbed(msg, eb.build());
         });
     }
 
@@ -441,7 +566,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             switch (spec.name()) {
                 case "commands" -> bot.replyHelp(msg, HelpPages.titles(), HelpPages.pages());
                 case "version" -> DiscordBot.reply(msg, versionLine());
-                default -> DiscordBot.reply(msg, "Account linking isn't available yet! Please use commands in-game only.");
+                default -> onDiscordPvCommand(msg, raw, spec);
             }
             return; // never relayed
         }
@@ -454,7 +579,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             return;
         }
         String text = OutgoingSanitizer.discordText(
-                displayText(msg), msg.getAttachments().size(), msg.getStickers().size());
+                com.guildbridge.core.EmojiText.toGame(displayText(msg)), msg.getAttachments().size(), msg.getStickers().size());
         String name = event.getMember() != null ? event.getMember().getEffectiveName() : event.getAuthor().getEffectiveName();
         String cmd = OutgoingSanitizer.toGuildCommand(name, text, filter, cfg.discordPrefix);
         if (cmd == null) return;
@@ -520,6 +645,14 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             case BotCommand.AdminAdd a -> DiscordBot.reply(msg, adminAdd(msg, a.userId()));
             case BotCommand.AdminRemove a -> DiscordBot.reply(msg, adminRemove(a.userId()));
             case BotCommand.AdminShow a -> DiscordBot.reply(msg, adminListText());
+            case BotCommand.Patch x -> {
+                var entry = com.guildbridge.core.Changelog.latest();
+                if (entry == null) DiscordBot.reply(msg, "No patch notes found.");
+                else DiscordBot.replyEmbed(msg, new net.dv8tion.jda.api.EmbedBuilder()
+                        .setTitle("What's new in " + entry.version()).setDescription(entry.notes()).setColor(0x00AA00).build());
+            }
+            case BotCommand.LinkList x -> DiscordBot.reply(msg, linkListText());
+            case BotCommand.LinkRemove x -> DiscordBot.reply(msg, removeLink(x.who()));
         }
     }
 
@@ -560,6 +693,33 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         } catch (Exception e) {
             Main.LOG.warn("Could not update the admins file: {}", e.toString());
             return "Could not update the admins file: " + e.getMessage();
+        }
+    }
+
+    private String linkListText() {
+        if (links == null) return "Linking isn't set up.";
+        var all = links.all();
+        if (all.isEmpty()) return "No linked accounts yet.";
+        StringBuilder sb = new StringBuilder("**Linked accounts (" + all.size() + "):**");
+        int shown = 0;
+        for (var e : all.entrySet()) {
+            if (sb.length() > 1800) {
+                sb.append("\n...and ").append(all.size() - shown).append(" more");
+                break;
+            }
+            sb.append("\n<@").append(e.getKey()).append("> → ")
+                    .append(net.dv8tion.jda.api.utils.MarkdownSanitizer.escape(String.valueOf(e.getValue().name())));
+            shown++;
+        }
+        return sb.toString();
+    }
+
+    private String removeLink(String who) {
+        if (links == null) return "Linking isn't set up.";
+        try {
+            return links.unlink(who).map(l -> "Removed the link to " + l.name() + ".").orElse("No link found for " + who + ".");
+        } catch (IOException e) {
+            return "Couldn't save that: " + e.getMessage();
         }
     }
 

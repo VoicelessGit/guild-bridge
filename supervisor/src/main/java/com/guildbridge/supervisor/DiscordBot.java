@@ -22,7 +22,10 @@ import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
+import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -60,6 +63,41 @@ final class DiscordBot extends ListenerAdapter {
                 .addEventListeners(this)
                 .build();
         jda.awaitReady();
+    }
+
+    private volatile Consumer<SlashCommandInteractionEvent> onSlash = e -> {};
+
+    void setOnSlash(Consumer<SlashCommandInteractionEvent> handler) {
+        onSlash = handler;
+    }
+
+    /**
+     * Registers /verify and /unlink in the bridge channel's server. Server commands show up right
+     * away. Needs the bot to have been invited with the applications.commands scope.
+     */
+    void registerSlashCommands() {
+        try {
+            TextChannel ch = channel();
+            if (ch == null) return;
+            ch.getGuild().updateCommands().addCommands(
+                    Commands.slash("verify", "Link your Minecraft account to your Discord account")
+                            .addOption(OptionType.STRING, "username", "Your Minecraft name", true),
+                    Commands.slash("unlink", "Remove the link to your Minecraft account"))
+                    .queue(ok -> Main.LOG.info("Slash commands registered (/verify, /unlink)"),
+                            err -> Main.LOG.warn("Could not register slash commands ({}). Re-invite the bot with the "
+                                    + "applications.commands scope to enable /verify.", err.getMessage()));
+        } catch (RuntimeException e) {
+            Main.LOG.warn("Could not register slash commands: {}", e.toString());
+        }
+    }
+
+    @Override
+    public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
+        try {
+            onSlash.accept(event);
+        } catch (RuntimeException e) {
+            Main.LOG.warn("Error handling /{}: {}", event.getName(), e.toString());
+        }
     }
 
     void setOnPermissionProblem(Runnable r) {

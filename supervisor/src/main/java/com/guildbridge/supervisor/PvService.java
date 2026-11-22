@@ -37,11 +37,19 @@ final class PvService {
         this.commandsHint = commandsHint;
     }
 
-    /** Never completes exceptionally: errors become a short line for the player. */
+    /** In game: no [user] means the player who asked. Never completes exceptionally. */
     CompletableFuture<String> answer(String text, String asker) {
+        return answer(text, asker, null);
+    }
+
+    /**
+     * @param selfName   name to use when no [user] is given (in game), or null
+     * @param selfLinked linked account to use when no [user] is given (Discord), or null
+     */
+    CompletableFuture<String> answer(String text, String selfName, HypixelApi.Player selfLinked) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return compute(text, asker);
+                return compute(text, selfName, selfLinked);
             } catch (HypixelApi.ApiException | SbProfile.NotFound e) {
                 return e.getMessage();
             } catch (RuntimeException e) {
@@ -51,7 +59,7 @@ final class PvService {
         }, pool);
     }
 
-    String compute(String text, String asker) {
+    String compute(String text, String asker, HypixelApi.Player linked) {
         PvCommands.Request r = PvCommands.parse(text, q -> {
             try {
                 return PvFormat.findCollection(api.collections(), q) != null;
@@ -78,8 +86,23 @@ final class PvService {
                 break;
         }
         if (!api.hasKey()) return "Profile commands aren't set up yet (no Hypixel API key).";
-        String name = r.user() != null ? r.user() : asker;
-        HypixelApi.Player pl = api.player(name);
+        HypixelApi.Player pl;
+        if (r.user() != null) {
+            pl = api.player(r.user());
+        } else if (linked != null) {
+            String current;
+            try {
+                current = api.nameOf(linked.uuid()); // names change; the link keeps the uuid
+            } catch (RuntimeException e) {
+                current = linked.name();
+            }
+            pl = new HypixelApi.Player(current, linked.uuid());
+        } else if (asker != null) {
+            pl = api.player(asker);
+        } else {
+            return "Add a Minecraft name: " + r.spec().usage().replace("[user]", "<user>")
+                    + ". Link your account with /verify to skip it.";
+        }
         SbProfile p = SbProfile.pick(pl.name(), pl.uuid(), api.profiles(pl.uuid()), r.profile());
         return switch (r.spec().name()) {
             case "sb" -> PvFormat.sb(p);

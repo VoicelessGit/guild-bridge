@@ -56,6 +56,9 @@ public final class DiscordEmbed {
                     embed.add("thumbnail", thumb);
                 }
             }
+            case BridgeEvent.Whisper w -> {
+                return null; // private, never posted
+            }
         }
         return embed.toString();
     }

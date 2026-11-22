@@ -9,6 +9,9 @@ interface PvData {
 
     HypixelApi.Player player(String name);
 
+    /** Current name for a uuid (names change; links store the uuid). */
+    String nameOf(String uuid);
+
     JsonObject profiles(String uuid);
 
     JsonObject garden(String profileId);

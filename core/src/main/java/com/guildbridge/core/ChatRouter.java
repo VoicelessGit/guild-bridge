@@ -49,6 +49,12 @@ public final class ChatRouter {
         if (block != null && now - blockStartedAt > MAX_BLOCK_MILLIS) block = null;
         for (String raw : TextUtil.stripFormatting(message).split("\\R")) {
             String line = raw.strip();
+            // Whispers are never part of a block either.
+            var whisper = ChatParser.whisper(line);
+            if (whisper.isPresent()) {
+                out.add(whisper.get());
+                continue;
+            }
             // Guild/officer chat and join/leave lines are never part of a block, so a stray separator can't swallow it.
             var chat = ChatParser.parse(line);
             if (chat.isPresent()) {

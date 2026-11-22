@@ -37,16 +37,21 @@ public final class BotCommand {
     /** Clears a ban or duplicate-login pause and lets auto-join try again. */
     public record Rejoin() implements Parsed {}
 
+    /** What changed in the newest version (Discord only). */
+    public record Patch() implements Parsed {}
+
     // Owner commands
     public record AdminAdd(String userId) implements Parsed {}
     public record AdminRemove(String userId) implements Parsed {}
     public record AdminShow() implements Parsed {}
+    public record LinkList() implements Parsed {}
+    public record LinkRemove(String who) implements Parsed {}
 
     /** A known command used wrongly; message is the usage hint to show. */
     public record Invalid(String message) implements Parsed {}
 
     private static final Set<String> KNOWN = Set.of(
-            "commands", "g", "say", "mc", "status", "uptime", "restart", "start", "stop", "logs", "rejoin", "admin");
+            "commands", "g", "say", "mc", "status", "uptime", "restart", "start", "stop", "logs", "rejoin", "admin", "patch", "links", "unlink");
 
     private BotCommand() {}
 
@@ -67,7 +72,8 @@ public final class BotCommand {
 
     /** Commands only the owner may use. */
     public static boolean requiresOwner(Parsed p) {
-        return p instanceof AdminAdd || p instanceof AdminRemove || p instanceof AdminShow;
+        return p instanceof AdminAdd || p instanceof AdminRemove || p instanceof AdminShow
+                || p instanceof LinkList || p instanceof LinkRemove;
     }
 
     /** Parses a message. Empty means it is not a command at all. */
@@ -90,6 +96,10 @@ public final class BotCommand {
             case "say" -> rest.isEmpty() ? new Invalid("Usage: `!say <message>`") : new Say(rest);
             case "mc" -> parseRun(rest);
             case "admin" -> parseAdmin(rest);
+            case "patch" -> new Patch();
+            case "links" -> new LinkList();
+            case "unlink" -> rest.isEmpty() ? new Invalid("Usage: `!unlink <@user, user id or Minecraft name>`")
+                    : new LinkRemove(rest.split("\\s+")[0].replaceAll("^<@!?(\\d+)>$", "$1"));
             default -> new Invalid("Unknown command. Try `!commands`.");
         });
     }
@@ -157,6 +167,8 @@ public final class BotCommand {
                 **Discord: member commands**
                 `!commands` or `!help` show this list
                 `!version` bot version and last update
+                `!patch` what changed in the latest version
+                `/verify <name>` link your Minecraft account, `/unlink` to undo
                 `!g online` who is online in the guild
                 `!g top` today's top guild experience
                 `!g top <1-10>` top guild experience from that many days ago
@@ -175,6 +187,8 @@ public final class BotCommand {
                 **Discord: owner commands**
                 `!admin add <id or @mention>` make someone an admin
                 `!admin remove <id or @mention>` remove an admin
-                `!admin list` show the admins""";
+                `!admin list` show the admins
+                `!links` show linked accounts
+                `!unlink <@user or name>` remove someone's link""";
     }
 }

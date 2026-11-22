@@ -115,6 +115,22 @@ isn't available yet! Please use commands in-game only." for game commands (excep
 `!help`, `!version`). Per-player cooldown 10 s, at most 4 answers queued, repeated lines get
 " (for <name>)" so Hypixel doesn't block them.
 
+## 0.3.x: Discord commands, linking, emoji, queue
+
+- In-game commands wait in a FIFO queue (max 2 per player, `maxQueuedGameCommands` total) and are
+  answered one at a time, `gameCommandGapSeconds` (7) apart. Discord profile commands answer right
+  away (per-user `discordCommandCooldownSeconds`) as an embed; without a name they use the linked
+  account, else ask for a name. Unlinked users get a /verify tip in the footer.
+- Linking: `/verify <name>` (server slash command, ephemeral) issues a 6-char code (core `Verifier`,
+  5 min, single use, new one replaces old). The player whispers it to the bridge; the mod emits
+  `BridgeEvent.Whisper` ("From [RANK] Name: msg", never relayed); a matching code from that player
+  links via core `LinkStore` (guildbridge-links.json, one-to-one, re-verify moves the link).
+  `/unlink`; owner `!links`, `!unlink <@user|id|name>`. Needs applications.commands scope and the
+  bridge account accepting private messages.
+- Discord to game: `EmojiText` keeps single-BMP emoji as the symbol and turns the rest into
+  :name: (emoji-datasource table in guildbridge/emoji.tsv).
+- `!patch` (Discord) shows the newest section of guildbridge/changelog.md. Add a section per release.
+
 ## Updates without downtime
 
 `update.sh` moves uploaded jars into place. Supervisor-only updates leave `.keep-game`, so the
