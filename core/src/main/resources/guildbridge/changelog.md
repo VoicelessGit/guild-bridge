@@ -3,6 +3,7 @@
 - /verify links your Minecraft account on Hypixel
 - In-game commands wait in line instead of being ignored
 - Emoji show in game (💀 becomes :skull:)
+- Long Discord messages are sent as two messages in game
 - New !patch command (Discord only)
 
 ## 0.2.1

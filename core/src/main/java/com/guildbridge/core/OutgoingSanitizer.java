@@ -39,6 +39,44 @@ public final class OutgoingSanitizer {
         return head + body;
     }
 
+    /** A Discord message split into game lines. {@code cut} means it was too long even for two. */
+    public record Split(java.util.List<String> commands, boolean cut) {}
+
+    /**
+     * Like {@link #toGuildCommand(String, String, ProfanityFilter, String)}, but a message that is
+     * too long for one chat line becomes two, split at a space, each ending with (1/2) or (2/2)
+     * and each carrying the author so other chat in between can't confuse who said what. Longer
+     * than two lines: the second ends with "..." and {@code cut} is true.
+     */
+    public static Split toGuildCommands(String discordAuthor, String text, ProfanityFilter filter, String prefix) {
+        String single = toGuildCommand(discordAuthor, text, filter, prefix);
+        if (single == null) return new Split(java.util.List.of(), false);
+        if (filter != null) {
+            discordAuthor = filter.censor(discordAuthor);
+            text = filter.censor(text);
+        }
+        String author = clean(LinkFilter.block(discordAuthor));
+        String body = clean(LinkFilter.block(text));
+        String tag = clean(prefix);
+        String who = author.isEmpty() ? "" : (tag.isEmpty() ? "" : tag + " ") + author + ": ";
+        String head = COMMAND + who;
+        int oneRoom = CHAT_LIMIT - 1 - head.length();
+        if (body.length() <= oneRoom) return new Split(java.util.List.of(single), false);
+
+        int room = oneRoom - " (1/2)".length();
+        if (room < 20) return new Split(java.util.List.of(single), true);
+        int cutAt = body.lastIndexOf(' ', room);
+        if (cutAt < room / 2) cutAt = room; // no good space: cut mid-word
+        String first = body.substring(0, cutAt).strip();
+        String rest = body.substring(cutAt).strip();
+        boolean cut = false;
+        if (rest.length() > room) {
+            rest = rest.substring(0, room - 3) + "...";
+            cut = true;
+        }
+        return new Split(java.util.List.of(head + first + " (1/2)", head + rest + " (2/2)"), cut);
+    }
+
     /** Same as above, with Discord name and text run through the filter first. */
     public static String toGuildCommand(String discordAuthor, String text, ProfanityFilter filter) {
         return toGuildCommand(discordAuthor, text, filter, "");

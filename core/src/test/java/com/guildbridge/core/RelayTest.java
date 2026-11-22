@@ -117,4 +117,32 @@ class RelayTest {
         assertEquals(1, out.size());
         assertEquals("Steve", ((BridgeEvent.Announcement) out.get(0)).joinedMember());
     }
+
+    @Test
+    void longDiscordMessagesSplitIntoTwoLines() {
+        String words = "word ".repeat(70).strip(); // about 350 characters
+        var split = OutgoingSanitizer.toGuildCommands("DiscordUser", words, null, "[D]");
+        assertEquals(2, split.commands().size());
+        assertFalse(split.cut());
+        for (String c : split.commands()) {
+            assertTrue(c.startsWith("gc [D] DiscordUser: "), c);
+            assertTrue(c.length() <= 255, "fits one chat line: " + c.length());
+        }
+        assertTrue(split.commands().get(0).endsWith("word (1/2)"), "split at a space");
+        assertTrue(split.commands().get(1).endsWith("(2/2)"));
+        String rejoined = split.commands().get(0).replace("gc [D] DiscordUser: ", "").replace(" (1/2)", "") + " "
+                + split.commands().get(1).replace("gc [D] DiscordUser: ", "").replace(" (2/2)", "");
+        assertEquals(words, rejoined, "nothing lost");
+    }
+
+    @Test
+    void shortMessagesStayOneLineAndHugeOnesAreCut() {
+        var one = OutgoingSanitizer.toGuildCommands("DiscordUser", "hi", null, "[D]");
+        assertEquals(java.util.List.of("gc [D] DiscordUser: hi"), one.commands());
+        var huge = OutgoingSanitizer.toGuildCommands("DiscordUser", "x".repeat(900), null, "[D]");
+        assertEquals(2, huge.commands().size());
+        assertTrue(huge.cut());
+        assertTrue(huge.commands().get(1).endsWith("... (2/2)"));
+        assertTrue(huge.commands().get(1).length() <= 255);
+    }
 }

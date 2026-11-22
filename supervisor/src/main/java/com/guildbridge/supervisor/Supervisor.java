@@ -581,14 +581,18 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         String text = OutgoingSanitizer.discordText(
                 com.guildbridge.core.EmojiText.toGame(displayText(msg)), msg.getAttachments().size(), msg.getStickers().size());
         String name = event.getMember() != null ? event.getMember().getEffectiveName() : event.getAuthor().getEffectiveName();
-        String cmd = OutgoingSanitizer.toGuildCommand(name, text, filter, cfg.discordPrefix);
-        if (cmd == null) return;
-        long id = ids.incrementAndGet();
-        pending.put(id, new Pending(msg, null, false, System.currentTimeMillis()));
-        if (!ipc.send(Ipc.command(id, cmd, true, false))) {
-            pending.remove(id);
-            DiscordBot.react(msg, "❌");
+        var split = OutgoingSanitizer.toGuildCommands(name, text, filter, cfg.discordPrefix);
+        if (split.commands().isEmpty()) return;
+        for (String cmd : split.commands()) {
+            long id = ids.incrementAndGet();
+            pending.put(id, new Pending(msg, null, false, System.currentTimeMillis()));
+            if (!ipc.send(Ipc.command(id, cmd, true, false))) {
+                pending.remove(id);
+                DiscordBot.react(msg, "❌");
+                return;
+            }
         }
+        if (split.cut()) DiscordBot.react(msg, "✂️"); // too long even for two lines: the end was cut
     }
 
     private void handleCommand(MessageReceivedEvent event, Message msg) {
