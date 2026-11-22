@@ -87,7 +87,7 @@ final class IpcClient {
                     socket = s;
                     out = new BufferedWriter(new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8));
                 }
-                send(Ipc.hello(secret, accountName()));
+                send(Ipc.hello(secret, accountName(), com.guildbridge.core.BuildInfo.read("mod")));
                 GuildBridgeClient.LOG.info("Connected to the Guild Bridge supervisor");
                 String line;
                 while (running && (line = in.readLine()) != null) {

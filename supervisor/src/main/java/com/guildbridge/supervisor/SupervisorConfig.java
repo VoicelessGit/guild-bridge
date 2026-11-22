@@ -22,6 +22,15 @@ final class SupervisorConfig {
     // !admin add/remove/list. Blank = nobody can manage admins from Discord.
     String owner = "";
 
+    // --- In-game commands (!sb, !skill, !bz ...) ---
+    // Free personal key from https://developer.hypixel.net. Needed for profile commands.
+    String hypixelApiKey = "";
+    int playerCommandCooldownSeconds = 10;
+    // What !commands says in game.
+    String commandsHint = "Full command list: type !commands in our Discord's bridge channel.";
+    // Time zone for dates in !version.
+    String timeZone = "America/New_York";
+
     // --- Guild features ---
     boolean welcomeEnabled = true;
     String welcomeMessage = "Welcome to the guild, {name}!";
@@ -67,6 +76,9 @@ final class SupervisorConfig {
         if (Files.exists(file)) c = GSON.fromJson(Files.readString(file), SupervisorConfig.class);
         if (c == null) c = new SupervisorConfig();
         if (c.alertPing == null) c.alertPing = new ArrayList<>();
+        if (c.hypixelApiKey == null) c.hypixelApiKey = "";
+        if (c.commandsHint == null) c.commandsHint = new SupervisorConfig().commandsHint;
+        if (c.timeZone == null) c.timeZone = "America/New_York";
         if (c.owner == null) c.owner = "";
         // Rewrite so new settings appear in the file with their defaults.
         Files.writeString(file, GSON.toJson(c));

@@ -154,13 +154,14 @@ public final class BotCommand {
     /** Text for !commands. Both tiers are listed, separated. */
     public static String helpText() {
         return """
-                **Member commands**
-                `!commands` show this list
+                **Discord: member commands**
+                `!commands` or `!help` show this list
+                `!version` bot version and last update
                 `!g online` who is online in the guild
                 `!g top` today's top guild experience
                 `!g top <1-10>` top guild experience from that many days ago
 
-                **Admin commands**
+                **Discord: admin commands**
                 `!say <message>` send a message in guild chat as the bridge
                 `!mc <command>` run any Minecraft command, e.g. `!mc /lobby`
                 `!status` where the bridge is (limbo, lobby, offline, stopped)
@@ -171,7 +172,7 @@ public final class BotCommand {
                 `!logs` or `!logs <1-50>` last lines of the game log
                 `!rejoin` let auto-join try again after a ban or login pause
 
-                **Owner commands**
+                **Discord: owner commands**
                 `!admin add <id or @mention>` make someone an admin
                 `!admin remove <id or @mention>` remove an admin
                 `!admin list` show the admins""";

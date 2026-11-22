@@ -68,8 +68,8 @@ class BotCommandTest {
     @Test
     void helpListsBothTiersSeparately() {
         String help = BotCommand.helpText();
-        int member = help.indexOf("**Member commands**");
-        int admin = help.indexOf("**Admin commands**");
+        int member = help.indexOf("**Discord: member commands**");
+        int admin = help.indexOf("**Discord: admin commands**");
         assertTrue(member >= 0 && admin > member);
         assertTrue(help.indexOf("!g top") < admin);
         assertTrue(help.indexOf("!restart") > admin);

@@ -1,0 +1,10 @@
+{
+  "name": "guildbridge-node-helper",
+  "private": true,
+  "description": "Networth and weight for Guild Bridge, using SkyHelper-Networth, lilyweight and senitherweight (all MIT).",
+  "dependencies": {
+    "skyhelper-networth": "^2.11.1",
+    "lilyweight": "^2.7.2",
+    "senitherweight": "^1.0.8"
+  }
+}

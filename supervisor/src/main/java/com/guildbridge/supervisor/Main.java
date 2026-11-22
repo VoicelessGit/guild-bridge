@@ -28,15 +28,15 @@ public final class Main {
             System.exit(2);
         }
 
+        writeUpdateScript(dir);
         AdminList admins = new AdminList(dir.resolve("guildbridge-admins.txt"));
         admins.createIfMissing();
         WelcomeTracker welcomes = new WelcomeTracker(dir.resolve("guildbridge-welcomed.txt"));
         ProfanityFilter filter = loadFilter(dir.resolve("guildbridge-filter.txt"), cfg.filterThreshold);
 
-        // A fresh secret every run; the game gets it on its command line from us.
-        byte[] raw = new byte[24];
-        new SecureRandom().nextBytes(raw);
-        String secret = HexFormat.of().formatHex(raw);
+        // The game gets the secret on its command line from us. It is kept in a file so a new
+        // supervisor (after an update) can talk to a game the previous one started.
+        String secret = loadOrCreateSecret(dir.resolve(".ipc-secret"));
 
         Supervisor sup = new Supervisor(cfg, dir, filter, admins, welcomes);
         IpcServer ipc = new IpcServer(cfg.ipcPort, secret, sup);
@@ -49,11 +49,52 @@ public final class Main {
         DiscordBot bot = new DiscordBot(cfg.botToken, cfg.channelId, sup::onDiscordMessage);
         GameProcess game = new GameProcess(cfg, dir, secret, sup);
         sup.attach(bot, ipc, game);
+        HypixelApi api = new HypixelApi(() -> cfg.hypixelApiKey);
+        NodeHelper node = new NodeHelper(dir);
+        sup.setPvService(new PvService(api, node, sup::versionLine, () -> cfg.commandsHint));
+        node.warmUp();
+        if (!api.hasKey()) LOG.warn("No hypixelApiKey in guildbridge.json: profile commands (!sb, !skill...) will say they aren't set up.");
         Runtime.getRuntime().addShutdownHook(new Thread(sup::shutdown, "shutdown"));
 
-        LOG.info("Supervisor ready in {}", dir);
-        if (cfg.autoStartGame) LOG.info(game.start());
+        LOG.info("Supervisor ready in {} (version {})", dir, com.guildbridge.core.BuildInfo.read("supervisor").version());
+        if (game.adopt()) {
+            LOG.info("The game kept running through the supervisor restart");
+        } else if (cfg.autoStartGame) {
+            LOG.info(game.start());
+        }
         Thread.currentThread().join(); // run until stopped
+    }
+
+    /** Keeps ~/bridge/update.sh current; it ships inside this jar. */
+    private static void writeUpdateScript(Path dir) {
+        try (var in = Main.class.getResourceAsStream("/deploy/update.sh")) {
+            if (in == null) return;
+            byte[] bundled = in.readAllBytes();
+            Path target = dir.resolve("update.sh");
+            if (!Files.exists(target) || !java.util.Arrays.equals(Files.readAllBytes(target), bundled)) {
+                Files.write(target, bundled);
+                target.toFile().setExecutable(true);
+            }
+        } catch (IOException e) {
+            LOG.warn("Could not write update.sh: {}", e.toString());
+        }
+    }
+
+    private static String loadOrCreateSecret(Path file) throws IOException {
+        if (Files.exists(file)) {
+            String s = Files.readString(file).strip();
+            if (s.matches("[0-9a-f]{32,}")) return s;
+        }
+        byte[] raw = new byte[24];
+        new SecureRandom().nextBytes(raw);
+        String secret = HexFormat.of().formatHex(raw);
+        Files.writeString(file, secret + "\n");
+        try {
+            Files.setPosixFilePermissions(file, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        } catch (UnsupportedOperationException | IOException ignored) {
+            // Windows
+        }
+        return secret;
     }
 
     private static ProfanityFilter loadFilter(Path custom, int threshold) {

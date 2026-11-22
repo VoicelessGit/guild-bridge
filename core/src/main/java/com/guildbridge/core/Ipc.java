@@ -30,6 +30,14 @@ public final class Ipc {
         return o;
     }
 
+    /** Hello that also tells the supervisor the mod's version, for !version. */
+    public static JsonObject hello(String secret, String account, BuildInfo mod) {
+        JsonObject o = hello(secret, account);
+        o.addProperty("version", mod.version());
+        o.addProperty("built", mod.built());
+        return o;
+    }
+
     public static JsonObject event(BridgeEvent e) {
         JsonObject o = msg("event");
         o.add("event", toJson(e));

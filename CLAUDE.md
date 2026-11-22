@@ -37,7 +37,7 @@ Rule: if a change can be tested without Minecraft or Discord, it goes in `core` 
 ## Commands
 
 - `./gradlew :core:test` logic tests
-- `./gradlew :mod:build` -> `mod/build/libs/guildbridge-0.1.0.jar`
+- `./gradlew :mod:build` -> `mod/build/libs/guildbridge-<mod_version>.jar` (version in gradle.properties)
 - `./gradlew :supervisor:build` -> `supervisor/build/libs/guildbridge-supervisor.jar`
 - Run: in the supervisor folder, `java -jar guildbridge-supervisor.jar` (needs Java 21+)
 - GitHub Actions builds all three and uploads both jars.
@@ -47,7 +47,9 @@ Rule: if a change can be tested without Minecraft or Discord, it goes in `core` 
 `guildbridge.json` (config, written with defaults on first run), `guildbridge-admins.txt`,
 `guildbridge-welcomed.txt`, optional `guildbridge-filter.txt`, the HeadlessMc launcher
 (`headlessmc-launcher*`, found automatically or set `headlessMcPath`), and `game-console.log`
-(HeadlessMc output, overwritten each start). The mod jars go in HeadlessMc's game folder
+(HeadlessMc output, appended), `.ipc-secret` (kept so a new supervisor can talk to a running game),
+`.game.pid`, `update.sh` (written from the jar on start), `node-helper/` (networth/weight helper,
+npm installs its libraries on first use; needs Node.js). The mod jars go in HeadlessMc's game folder
 (`~/.minecraft/fabric-26.2/mods` on Linux, `%APPDATA%\.minecraft\fabric-26.2\mods` on Windows).
 HeadlessMc must be logged in once interactively (`login`, `account select <name>`).
 
@@ -96,6 +98,29 @@ Admins (`guildbridge-admins.txt`, re-read on change): also `!say`, `!mc`, `!stat
 `!start`, `!stop`, `!restart`, `!logs [1-50]`, `!rejoin`. Non-admins get ⛔.
 Owner (`owner` in guildbridge.json, always an admin): `!admin add|remove <id or @mention>`, `!admin list`.
 These edit guildbridge-admins.txt in place and keep hand-written lines and comments.
+
+## In-game commands (Phase 2, core `sb` package)
+
+Typed in guild or officer chat, answered in the same chat in one line, never relayed to Discord.
+Format `!command [arg] [user] [profile]`: arg is matched against the command's word list, a fruit
+name is a profile, anything else is a player. No user = the sender. Item commands (`!bz`, `!ah`,
+`!collection`) take free text; `!collection` peels a trailing player name if the rest is a known
+collection. Spec list and parser: `PvCommands`; formatters: `PvFormat`, `MarketFormat`; level math:
+`Levels` (tables from NEU repo, MIT, see THIRD_PARTY_LICENSES.txt). Tests run on a trimmed real
+profile in core/src/test/resources/sb.
+Supervisor side: `PvService` (fetch + format), `HypixelApi` (key from `hypixelApiKey`, caching,
+rate limit), `NodeHelper` (networth via skyhelper-networth, weight via lilyweight/senitherweight),
+`HelpPages` (Discord `!commands` with two buttons, gone after 30 s). Discord gets "Account linking
+isn't available yet! Please use commands in-game only." for game commands (except `!commands`,
+`!help`, `!version`). Per-player cooldown 10 s, at most 4 answers queued, repeated lines get
+" (for <name>)" so Hypixel doesn't block them.
+
+## Updates without downtime
+
+`update.sh` moves uploaded jars into place. Supervisor-only updates leave `.keep-game`, so the
+shutdown hook detaches instead of stopping the game; the new supervisor reattaches via `.game.pid`
+and the mod reconnects with the saved secret. Requires `KillMode=process` in the systemd unit
+(supervisor/src/main/resources/deploy/guildbridge.service). Mod updates restart the game.
 
 ## Mod behavior
 

@@ -74,6 +74,13 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
     private volatile long lastModContact;
     private volatile String bannedReason;    // non-null while auto-join is paused for a ban
     private volatile long lastMemberCommandAt;
+    private volatile com.guildbridge.core.BuildInfo modInfo;   // reported by the mod in its hello
+    private PvService pv;
+    /** In-game command cooldown per player (lowercase name to last use). */
+    private final Map<String, Long> playerCommandAt = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger commandsInFlight = new java.util.concurrent.atomic.AtomicInteger();
+    /** Last few answers sent; Hypixel and the mod refuse a line repeated this soon. */
+    private final java.util.ArrayDeque<String> recentAnswers = new java.util.ArrayDeque<>();
 
     Supervisor(SupervisorConfig cfg, Path dir, ProfanityFilter filter, AdminList admins, WelcomeTracker welcomes) {
         this.cfg = cfg;
@@ -82,6 +89,23 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         this.admins = admins;
         this.welcomes = welcomes;
         this.limiter = new AlertLimiter(Math.max(1, cfg.alertCooldownMinutes) * 60_000L);
+    }
+
+    void setPvService(PvService pv) {
+        this.pv = pv;
+    }
+
+    String versionLine() {
+        return com.guildbridge.core.BuildInfo.versionLine(com.guildbridge.core.BuildInfo.read("supervisor"),
+                modConnected ? modInfo : null, zone());
+    }
+
+    private java.time.ZoneId zone() {
+        try {
+            return java.time.ZoneId.of(cfg.timeZone);
+        } catch (RuntimeException e) {
+            return java.time.ZoneId.of("UTC");
+        }
     }
 
     void attach(DiscordBot bot, IpcServer ipc, GameProcess game) {
@@ -96,7 +120,19 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
     }
 
     void shutdown() {
-        game.shutdownAndWait(this::askModToQuit);
+        // update.sh leaves this file when only the supervisor changed: keep the game online.
+        Path keep = dir.resolve(".keep-game");
+        boolean keepGame = Files.exists(keep);
+        try {
+            Files.deleteIfExists(keep);
+        } catch (IOException ignored) {
+        }
+        if (keepGame && game.running()) {
+            game.detach();
+        } else {
+            game.shutdownAndWait(this::askModToQuit);
+        }
+        if (pv != null) pv.shutdown();
         bot.shutdown();
     }
 
@@ -109,7 +145,8 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
     // =====================================================================
 
     @Override
-    public void onConnected(String account) {
+    public void onConnected(String account, String modVersion, long modBuilt) {
+        modInfo = new com.guildbridge.core.BuildInfo(modVersion == null ? "?" : modVersion, modBuilt);
         modConnected = true;
         guard = new LoopGuard(account);
         long now = System.currentTimeMillis();
@@ -159,8 +196,42 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         if (event == null) return;
         LoopGuard g = guard;
         if (g != null && !g.shouldRelay(event)) return;
+        // In-game commands are answered in game and not relayed to Discord.
+        if (event instanceof BridgeEvent.Chat c && com.guildbridge.core.sb.PvCommands.isCommand(c.message())) {
+            onGameCommand(c);
+            return;
+        }
         bot.post(DiscordEmbed.forEvent(event, filter));
         if (event instanceof BridgeEvent.Announcement a && a.joinedMember() != null) welcome(a.joinedMember());
+    }
+
+    /** A guild member typed !something in guild or officer chat. */
+    private void onGameCommand(BridgeEvent.Chat c) {
+        if (pv == null) return;
+        String who = c.name().toLowerCase(java.util.Locale.ROOT);
+        long now = System.currentTimeMillis();
+        Long last = playerCommandAt.get(who);
+        if (last != null && now - last < Math.max(1, cfg.playerCommandCooldownSeconds) * 1000L) return; // quietly ignore spam
+        // Keep the bridge from flooding chat: only a few answers queue up at once.
+        if (commandsInFlight.get() >= 4) return;
+        playerCommandAt.put(who, now);
+        commandsInFlight.incrementAndGet();
+        String prefix = c.channel() == BridgeEvent.Channel.OFFICER ? "oc " : "gc ";
+        Main.LOG.info("{} used {}", c.name(), c.message().strip());
+        pv.answer(c.message(), c.name()).whenComplete((line, err) -> {
+            commandsInFlight.decrementAndGet();
+            if (line == null || line.isBlank() || !modConnected) return;
+            synchronized (recentAnswers) {
+                // Two people asking the same thing would get an identical line, which would be blocked.
+                if (recentAnswers.contains(line)) line = line + " (for " + c.name() + ")";
+                recentAnswers.addLast(line);
+                while (recentAnswers.size() > 3) recentAnswers.removeFirst();
+            }
+            String cmd = OutgoingSanitizer.toGuildCommand("", line, null, "");
+            if (cmd == null) return;
+            if (cmd.startsWith("gc ")) cmd = prefix + cmd.substring(3);
+            ipc.send(Ipc.command(ids.incrementAndGet(), cmd, true, false));
+        });
     }
 
     private void welcome(String name) {
@@ -349,7 +420,18 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
 
     void onDiscordMessage(MessageReceivedEvent event) {
         Message msg = event.getMessage();
-        if (BotCommand.looksLikeCommand(msg.getContentRaw())) {
+        String raw = msg.getContentRaw();
+        if (com.guildbridge.core.sb.PvCommands.isCommand(raw)) {
+            String word = raw.strip().substring(1).split("\\s+")[0];
+            var spec = com.guildbridge.core.sb.PvCommands.find(word).orElseThrow();
+            switch (spec.name()) {
+                case "commands" -> bot.replyHelp(msg, HelpPages.titles(), HelpPages.pages());
+                case "version" -> DiscordBot.reply(msg, versionLine());
+                default -> DiscordBot.reply(msg, "Account linking isn't available yet! Please use commands in-game only.");
+            }
+            return; // never relayed
+        }
+        if (BotCommand.looksLikeCommand(raw)) {
             handleCommand(event, msg);
             return; // commands are never relayed
         }
@@ -387,8 +469,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
 
         switch (p) {
             case BotCommand.Invalid i -> DiscordBot.reply(msg, i.message());
-            case BotCommand.Commands c -> DiscordBot.replyEmbed(msg, new net.dv8tion.jda.api.EmbedBuilder()
-                    .setTitle("Bridge commands").setDescription(BotCommand.helpText()).setColor(0x00AA00).build());
+            case BotCommand.Commands c -> bot.replyHelp(msg, HelpPages.titles(), HelpPages.pages());
             case BotCommand.Status s -> DiscordBot.reply(msg, statusText());
             case BotCommand.Uptime u -> DiscordBot.reply(msg, uptimeText());
             case BotCommand.Start s -> DiscordBot.reply(msg, game.start());

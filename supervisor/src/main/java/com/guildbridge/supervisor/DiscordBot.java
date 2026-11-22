@@ -4,7 +4,15 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.components.MessageTopLevelComponent;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
@@ -14,6 +22,7 @@ import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -30,6 +39,15 @@ final class DiscordBot extends ListenerAdapter {
     private final long channelId;
     private final Consumer<MessageReceivedEvent> onMessage;
     private volatile Runnable onPermissionProblem = () -> {};
+    /** Open paged messages (message id to its pages), forgotten after HELP_TIMEOUT_SECONDS. */
+    private final Map<Long, List<MessageEmbed>> openHelp = new ConcurrentHashMap<>();
+    private final Map<Long, List<String>> openHelpTitles = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService helpTimer = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "help-timeout");
+        t.setDaemon(true);
+        return t;
+    });
+    private static final int HELP_TIMEOUT_SECONDS = 30;
 
     DiscordBot(String token, String channelId, Consumer<MessageReceivedEvent> onMessage) throws InterruptedException {
         this.channelId = Long.parseLong(channelId.strip());
@@ -49,6 +67,7 @@ final class DiscordBot extends ListenerAdapter {
     }
 
     void shutdown() {
+        helpTimer.shutdownNow();
         jda.shutdown();
     }
 
@@ -60,6 +79,57 @@ final class DiscordBot extends ListenerAdapter {
             onMessage.accept(event);
         } catch (RuntimeException e) {
             Main.LOG.warn("Error handling Discord message: {}", e.toString());
+        }
+    }
+
+    /**
+     * Replies with page 1 and a button per page. After HELP_TIMEOUT_SECONDS the buttons are removed
+     * and the pages forgotten, so nothing piles up in memory.
+     */
+    void replyHelp(Message msg, List<String> titles, List<MessageEmbed> pages) {
+        try {
+            msg.replyEmbeds(pages.get(0)).setComponents(helpRow(titles, 0)).queue(sent -> {
+                openHelp.put(sent.getIdLong(), pages);
+                openHelpTitles.put(sent.getIdLong(), titles);
+                helpTimer.schedule(() -> {
+                    openHelp.remove(sent.getIdLong());
+                    openHelpTitles.remove(sent.getIdLong());
+                    try {
+                        sent.editMessageComponents(new ArrayList<MessageTopLevelComponent>()).queue(null, err -> {});
+                    } catch (RuntimeException ignored) {
+                    }
+                }, HELP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }, err -> Main.LOG.warn("Could not send the command list: {}", err.toString()));
+        } catch (RuntimeException e) {
+            Main.LOG.warn("Could not send the command list (missing Embed Links?): {}", e.toString());
+        }
+    }
+
+    private static ActionRow helpRow(List<String> titles, int current) {
+        List<Button> buttons = new ArrayList<>();
+        for (int i = 0; i < titles.size(); i++) {
+            Button b = i == current ? Button.primary("gbhelp:" + i, titles.get(i)) : Button.secondary("gbhelp:" + i, titles.get(i));
+            buttons.add(b);
+        }
+        return ActionRow.of(buttons);
+    }
+
+    @Override
+    public void onButtonInteraction(ButtonInteractionEvent event) {
+        try {
+            String id = event.getComponentId();
+            if (!id.startsWith("gbhelp:")) return;
+            List<MessageEmbed> pages = openHelp.get(event.getMessageIdLong());
+            List<String> titles = openHelpTitles.get(event.getMessageIdLong());
+            if (pages == null || titles == null) {
+                event.reply("This list timed out. Send `!commands` again.").setEphemeral(true).queue(null, err -> {});
+                return;
+            }
+            int page = Integer.parseInt(id.substring("gbhelp:".length()));
+            if (page < 0 || page >= pages.size()) return;
+            event.editMessageEmbeds(pages.get(page)).setComponents(helpRow(titles, page)).queue(null, err -> {});
+        } catch (RuntimeException e) {
+            Main.LOG.warn("Error handling a button: {}", e.toString());
         }
     }
 

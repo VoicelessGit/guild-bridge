@@ -21,7 +21,7 @@ import java.security.MessageDigest;
  */
 final class IpcServer {
     interface Handler {
-        void onConnected(String account);
+        void onConnected(String account, String modVersion, long modBuilt);
         void onMessage(JsonObject message);
         void onDisconnected();
     }
@@ -89,7 +89,7 @@ final class IpcServer {
             current = conn;
             if (old != null) old.close();
             socket.setSoTimeout(READ_TIMEOUT_MILLIS);
-            handler.onConnected(Ipc.str(hello, "account"));
+            handler.onConnected(Ipc.str(hello, "account"), Ipc.str(hello, "version"), Ipc.num(hello, "built", 0));
 
             String line;
             while ((line = in.readLine()) != null) {

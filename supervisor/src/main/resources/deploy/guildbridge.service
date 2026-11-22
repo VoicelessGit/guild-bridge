@@ -1,0 +1,17 @@
+[Unit]
+Description=Guild Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=USER_NAME
+WorkingDirectory=/home/USER_NAME/bridge
+ExecStart=/usr/bin/java -Xmx256m -jar /home/USER_NAME/bridge/guildbridge-supervisor.jar
+Restart=always
+RestartSec=15
+# Only stop the supervisor itself on restart; it decides whether the game keeps running.
+KillMode=process
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

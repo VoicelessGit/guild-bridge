@@ -17,6 +17,20 @@ repositories { mavenCentral() }
 sourceSets.main.java.srcDir '../core/src/main/java'
 sourceSets.main.resources.srcDir '../core/src/main/resources'
 
+// Version and build time for !version, stamped into the jar at build time.
+def buildInfoVersion = project.mod_version
+def buildInfoTask = tasks.register('buildInfo') {
+    def out = layout.buildDirectory.dir('generated/buildinfo')
+    outputs.dir out
+    outputs.upToDateWhen { false }
+    doLast {
+        def f = out.get().file('guildbridge/version-supervisor.properties').asFile
+        f.parentFile.mkdirs()
+        f.text = "version=${buildInfoVersion}\nbuilt=${System.currentTimeMillis()}\n"
+    }
+}
+sourceSets.main.resources.srcDir(buildInfoTask)
+
 dependencies {
     implementation("net.dv8tion:JDA:${jda_version}") {
         exclude module: 'opus-java' // voice, not needed
