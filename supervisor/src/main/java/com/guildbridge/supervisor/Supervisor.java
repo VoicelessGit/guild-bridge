@@ -10,6 +10,7 @@ import com.guildbridge.core.DiscordEmbed;
 import com.guildbridge.core.DisconnectKind;
 import com.guildbridge.core.Ipc;
 import com.guildbridge.core.LoopGuard;
+import com.guildbridge.core.MentionText;
 import com.guildbridge.core.OutgoingSanitizer;
 import com.guildbridge.core.ProfanityFilter;
 import com.guildbridge.core.WelcomeTracker;
@@ -357,7 +358,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             return;
         }
         String text = OutgoingSanitizer.discordText(
-                msg.getContentDisplay(), msg.getAttachments().size(), msg.getStickers().size());
+                displayText(msg), msg.getAttachments().size(), msg.getStickers().size());
         String name = event.getMember() != null ? event.getMember().getEffectiveName() : event.getAuthor().getEffectiveName();
         String cmd = OutgoingSanitizer.toGuildCommand(name, text, filter, cfg.discordPrefix);
         if (cmd == null) return;
@@ -424,6 +425,23 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             case BotCommand.AdminAdd a -> DiscordBot.reply(msg, adminAdd(msg, a.userId()));
             case BotCommand.AdminRemove a -> DiscordBot.reply(msg, adminRemove(a.userId()));
             case BotCommand.AdminShow a -> DiscordBot.reply(msg, adminListText());
+        }
+    }
+
+    /** The message as people see it, with pings shown as nicknames or display names. */
+    private static String displayText(Message msg) {
+        try {
+            var users = new java.util.HashMap<String, String>();
+            var mentions = msg.getMentions();
+            mentions.getUsers().forEach(u -> users.put(u.getId(), u.getEffectiveName()));
+            mentions.getMembers().forEach(mem -> users.put(mem.getId(), mem.getEffectiveName()));
+            var roles = new java.util.HashMap<String, String>();
+            mentions.getRoles().forEach(r -> roles.put(r.getId(), r.getName()));
+            var channels = new java.util.HashMap<String, String>();
+            mentions.getChannels().forEach(c -> channels.put(c.getId(), c.getName()));
+            return MentionText.render(msg.getContentRaw(), users, roles, channels);
+        } catch (RuntimeException e) {
+            return msg.getContentDisplay(); // never lose a message over name lookup
         }
     }
 
