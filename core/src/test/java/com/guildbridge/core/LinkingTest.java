@@ -89,14 +89,14 @@ class LinkingTest {
     void patchNotesShowTheNewestVersion() {
         var e = Changelog.latest();
         assertNotNull(e);
-        assertEquals("0.3.2", e.version());
+        assertEquals("0.3.3", e.version());
         assertFalse(e.notes().contains("## "));
         var older = Changelog.find("0.3.1");
         assertNotNull(older);
         assertTrue(older.notes().contains("/verify"));
         assertNull(Changelog.find("9.9.9"));
         var all = Changelog.all();
-        assertEquals("0.3.2", all.get(0).version());
+        assertEquals("0.3.3", all.get(0).version());
         assertEquals("0.1.0", all.get(all.size() - 1).version());
     }
 
