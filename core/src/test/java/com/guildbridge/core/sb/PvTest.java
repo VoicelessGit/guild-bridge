@@ -42,10 +42,10 @@ class PvTest {
     @Test
     void overviewAndSkills() {
         SbProfile p = pear();
-        assertEquals("PlayerOne (Pear): SB 369 | Skill avg 48.4 | Cata 45 | Slayers 9/9/9/9/4/5", PvFormat.sb(p));
+        assertEquals("PlayerOne (Pear): SB 369 | Skill avg 45.6 | Cata 45 | Slayers 9/9/9/9/4/5", PvFormat.sb(p));
         assertEquals("PlayerOne: SkyBlock level 369 (59/100 xp)", PvFormat.level(p));
-        assertEquals("PlayerOne: avg 48.4 | Farming 53 (61%) | Mining 60 | Combat 60 | Foraging 22 (14%) | "
-                + "Fishing 32 (98%) | Enchanting 60 | Alchemy 50 | Taming 60 | Carpentry 39 (17%)", PvFormat.skills(p));
+        assertEquals("PlayerOne: avg 45.6 | Farming 53 (61%) | Mining 60 | Combat 60 | Foraging 22 (14%) | "
+                + "Fishing 32 (98%) | Enchanting 60 | Alchemy 50 | Taming 60 | Carpentry 39 (17%) | Hunting 20 (43%)", PvFormat.skills(p));
         assertEquals("PlayerOne: Farming 53 3.17M/5.2M (61% to 54)", PvFormat.skillOne(p, "farming"));
         assertEquals("PlayerOne: Mining 60 MAX +586k overflow", PvFormat.skillOne(p, "mining"));
     }

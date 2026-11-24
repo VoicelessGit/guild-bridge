@@ -13,7 +13,7 @@ import java.util.Map;
 public final class PvFormat {
     /** Skills that count toward skill average, in display order. */
     public static final List<String> AVG_SKILLS = List.of("farming", "mining", "combat", "foraging", "fishing",
-            "enchanting", "alchemy", "taming", "carpentry");
+            "enchanting", "alchemy", "taming", "carpentry", "hunting");
     static final String API_OFF = "API off";
 
     private PvFormat() {}
@@ -39,7 +39,7 @@ public final class PvFormat {
         return Levels.skill(skill, xp, skillCap(p, skill));
     }
 
-    /** Average of the 9 main skill levels, NaN with skills API off. */
+    /** Average of the 10 skill levels Hypixel counts (whole levels), NaN with skills API off. */
     public static double skillAverage(SbProfile p) {
         if (p.obj("player_data", "experience") == null) return Double.NaN;
         double sum = 0;

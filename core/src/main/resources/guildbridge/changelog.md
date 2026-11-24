@@ -1,3 +1,6 @@
+## 0.3.3
+- Skill average now includes Hunting, matching Hypixel
+
 ## 0.3.2
 - !patch <version> shows any version's notes
 - !version (or !versions) lists past versions
