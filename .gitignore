@@ -7,3 +7,13 @@ out/
 .vscode/
 # Secrets live here
 config/guildbridge.json
+# Bridge runtime files (never commit: token, links, secrets)
+guildbridge.json
+guildbridge-*.json
+guildbridge-*.txt
+.ipc-secret
+.game.pid
+.keep-game
+node-helper/
+samples/
+*.log
