@@ -89,14 +89,22 @@ class LinkingTest {
     void patchNotesShowTheNewestVersion() {
         var e = Changelog.latest();
         assertNotNull(e);
-        assertEquals("0.3.1", e.version());
-        assertTrue(e.notes().contains("/verify"));
+        assertEquals("0.3.2", e.version());
         assertFalse(e.notes().contains("## "));
+        var older = Changelog.find("0.3.1");
+        assertNotNull(older);
+        assertTrue(older.notes().contains("/verify"));
+        assertNull(Changelog.find("9.9.9"));
+        var all = Changelog.all();
+        assertEquals("0.3.2", all.get(0).version());
+        assertEquals("0.1.0", all.get(all.size() - 1).version());
     }
 
     @Test
     void newDiscordCommands() {
-        assertInstanceOf(BotCommand.Patch.class, BotCommand.parse("!patch").orElseThrow());
+        assertEquals(new BotCommand.Patch(null), BotCommand.parse("!patch").orElseThrow());
+        assertEquals(new BotCommand.Patch("0.3.1"), BotCommand.parse("!patch 0.3.1").orElseThrow());
+        assertInstanceOf(BotCommand.Invalid.class, BotCommand.parse("!patch latest").orElseThrow());
         assertFalse(BotCommand.requiresAdmin(BotCommand.parse("!patch").orElseThrow()));
         assertTrue(BotCommand.requiresOwner(BotCommand.parse("!links").orElseThrow()));
         var u = BotCommand.parse("!unlink <@123456789012345678>").orElseThrow();

@@ -32,6 +32,29 @@ final class HelpPages {
                         .setFooter("Page 2 of 2 | Networth by SkyHelper").build());
     }
 
+    static List<String> versionTitles() {
+        return List.of("Current version", "Past versions");
+    }
+
+    /** !version in Discord: page 1 the running versions, page 2 every version with its first note. */
+    static List<MessageEmbed> versionPages(String versionLine) {
+        var all = com.guildbridge.core.Changelog.all();
+        StringBuilder current = new StringBuilder(versionLine.replace(" | ", "\n"));
+        if (!all.isEmpty()) {
+            current.append("\n\n**What's new in ").append(all.get(0).version()).append("**\n").append(all.get(0).notes());
+        }
+        StringBuilder past = new StringBuilder("Use `!patch <version>` for a version's full notes.\n");
+        for (var e : all) {
+            String first = e.notes().lines().findFirst().orElse("").replaceFirst("^- ", "");
+            past.append("\n**").append(e.version()).append("**  ").append(first);
+        }
+        return List.of(
+                new EmbedBuilder().setTitle("Guild Bridge version").setDescription(trim(current)).setColor(0x00AA00)
+                        .setFooter("Page 1 of 2").build(),
+                new EmbedBuilder().setTitle("Past versions").setDescription(trim(past)).setColor(0x00AAAA)
+                        .setFooter("Page 2 of 2").build());
+    }
+
     private static String trim(StringBuilder sb) {
         return sb.length() > 4000 ? sb.substring(0, 4000) + "…" : sb.toString();
     }

@@ -1,4 +1,6 @@
 ## 0.3.2
+- !patch <version> shows any version's notes
+- !version (or !versions) lists past versions
 - Fixed numbers like "900k" being censored
 
 ## 0.3.1
@@ -18,3 +20,8 @@
 - Market commands: !bz, !ah, !mayor, !firesale
 - !commands and !version
 - Pings show display names
+
+## 0.1.0
+- First release: guild chat bridged both ways with Discord
+- Word and link filters, welcome messages, limbo upkeep
+- Admin commands and kick alerts

@@ -565,7 +565,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             var spec = com.guildbridge.core.sb.PvCommands.find(word).orElseThrow();
             switch (spec.name()) {
                 case "commands" -> bot.replyHelp(msg, HelpPages.titles(), HelpPages.pages());
-                case "version" -> DiscordBot.reply(msg, versionLine());
+                case "version" -> bot.replyHelp(msg, HelpPages.versionTitles(), HelpPages.versionPages(versionLine()));
                 default -> onDiscordPvCommand(msg, raw, spec);
             }
             return; // never relayed
@@ -650,10 +650,17 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             case BotCommand.AdminRemove a -> DiscordBot.reply(msg, adminRemove(a.userId()));
             case BotCommand.AdminShow a -> DiscordBot.reply(msg, adminListText());
             case BotCommand.Patch x -> {
-                var entry = com.guildbridge.core.Changelog.latest();
-                if (entry == null) DiscordBot.reply(msg, "No patch notes found.");
-                else DiscordBot.replyEmbed(msg, new net.dv8tion.jda.api.EmbedBuilder()
-                        .setTitle("What's new in " + entry.version()).setDescription(entry.notes()).setColor(0x00AA00).build());
+                var entry = x.version() == null ? com.guildbridge.core.Changelog.latest()
+                        : com.guildbridge.core.Changelog.find(x.version());
+                if (entry == null) {
+                    String known = String.join(", ", com.guildbridge.core.Changelog.all().stream()
+                            .map(com.guildbridge.core.Changelog.Entry::version).toList());
+                    DiscordBot.reply(msg, "No patch notes for " + x.version() + ". Versions: " + known);
+                } else {
+                    DiscordBot.replyEmbed(msg, new net.dv8tion.jda.api.EmbedBuilder()
+                            .setTitle("What's new in " + entry.version()).setDescription(entry.notes())
+                            .setColor(0x00AA00).build());
+                }
             }
             case BotCommand.LinkList x -> DiscordBot.reply(msg, linkListText());
             case BotCommand.LinkRemove x -> DiscordBot.reply(msg, removeLink(x.who()));

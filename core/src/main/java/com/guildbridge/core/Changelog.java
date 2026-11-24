@@ -11,16 +11,34 @@ public final class Changelog {
 
     /** The newest entry, or null if the changelog is missing. */
     public static Entry latest() {
+        var all = all();
+        return all.isEmpty() ? null : all.get(0);
+    }
+
+    /** The entry for a version like "0.3.1", or null. */
+    public static Entry find(String version) {
+        for (Entry e : all()) {
+            if (e.version().equals(version)) return e;
+        }
+        return null;
+    }
+
+    /** Every entry, newest first. */
+    public static java.util.List<Entry> all() {
         String text = read();
-        if (text == null) return null;
+        java.util.List<Entry> out = new java.util.ArrayList<>();
+        if (text == null) return out;
         int start = text.indexOf("## ");
-        if (start < 0) return null;
-        int lineEnd = text.indexOf('\n', start);
-        if (lineEnd < 0) return null;
-        String version = text.substring(start + 3, lineEnd).strip();
-        int next = text.indexOf("\n## ", lineEnd);
-        String notes = (next < 0 ? text.substring(lineEnd) : text.substring(lineEnd, next)).strip();
-        return new Entry(version, notes);
+        while (start >= 0) {
+            int lineEnd = text.indexOf('\n', start);
+            if (lineEnd < 0) break;
+            String version = text.substring(start + 3, lineEnd).strip();
+            int next = text.indexOf("\n## ", lineEnd);
+            String notes = (next < 0 ? text.substring(lineEnd) : text.substring(lineEnd, next)).strip();
+            out.add(new Entry(version, notes));
+            start = next < 0 ? -1 : next + 1;
+        }
+        return out;
     }
 
     private static String read() {

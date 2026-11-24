@@ -100,7 +100,7 @@ public final class PvCommands {
             // Bot commands
             spec("commands", List.of("help"), Map.of(), false, false, false, Need.NONE, Group.BOT,
                     "!commands", "where to find the full command list"),
-            spec("version", List.of(), Map.of(), false, false, false, Need.VERSION, Group.BOT,
+            spec("version", List.of("versions"), Map.of(), false, false, false, Need.VERSION, Group.BOT,
                     "!version", "bot version and last update"),
             spec("bz", List.of("bazaar"), Map.of(), true, true, false, Need.BAZAAR, Group.BOT,
                     "!bz <item>", "bazaar prices"),

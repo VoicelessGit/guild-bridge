@@ -38,7 +38,7 @@ public final class BotCommand {
     public record Rejoin() implements Parsed {}
 
     /** What changed in the newest version (Discord only). */
-    public record Patch() implements Parsed {}
+    public record Patch(String version) implements Parsed {}
 
     // Owner commands
     public record AdminAdd(String userId) implements Parsed {}
@@ -96,7 +96,9 @@ public final class BotCommand {
             case "say" -> rest.isEmpty() ? new Invalid("Usage: `!say <message>`") : new Say(rest);
             case "mc" -> parseRun(rest);
             case "admin" -> parseAdmin(rest);
-            case "patch" -> new Patch();
+            case "patch" -> rest.isEmpty() ? new Patch(null)
+                    : rest.strip().matches("\\d+\\.\\d+\\.\\d+") ? new Patch(rest.strip())
+                    : new Invalid("Usage: `!patch` or `!patch <version>`, like `!patch 0.3.1`");
             case "links" -> new LinkList();
             case "unlink" -> rest.isEmpty() ? new Invalid("Usage: `!unlink <@user, user id or Minecraft name>`")
                     : new LinkRemove(rest.split("\\s+")[0].replaceAll("^<@!?(\\d+)>$", "$1"));
@@ -166,8 +168,8 @@ public final class BotCommand {
         return """
                 **Discord: member commands**
                 `!commands` or `!help` show this list
-                `!version` bot version and last update
-                `!patch` what changed in the latest version
+                `!version` or `!versions` current and past versions
+                `!patch [version]` what changed, like `!patch 0.3.1`
                 `/verify <name>` link your Minecraft account, `/unlink` to undo
                 `!g online` who is online in the guild
                 `!g top` today's top guild experience

@@ -169,6 +169,7 @@ class PvTest {
     @Test
     void onlyOurCommandsCount() {
         assertTrue(PvCommands.isCommand("!sb"));
+        assertEquals("version", PvCommands.find("versions").orElseThrow().name());
         assertTrue(PvCommands.isCommand("  !KUUDRA Steve"));
         assertFalse(PvCommands.isCommand("!g online")); // a Discord command
         assertFalse(PvCommands.isCommand("hey !sb"));
