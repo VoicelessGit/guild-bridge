@@ -9,7 +9,8 @@ Bridges Hypixel guild chat and a Discord channel. Two programs:
   No Discord code, never sees the bot token.
 
 They talk over a private TCP connection on 127.0.0.1 (core `Ipc`). The supervisor launches the game
-with `-Dguildbridge.ipc.port` and `-Dguildbridge.ipc.secret` (fresh random secret per run); the mod
+with `-Dguildbridge.ipc.port` and `-Dguildbridge.ipc.secret` (random secret saved in `.ipc-secret`
+and reused, so a new supervisor can reattach to a running game); the mod
 connects, says hello with the secret, and sends a heartbeat every 20 s. Started any other way, the
 mod stays idle.
 
@@ -59,7 +60,9 @@ Game to Discord: mod `ChatRouter` -> `Ipc.event` -> supervisor `LoopGuard` (acco
 `DiscordEmbed.forEvent(event, filter)` (link filter, profanity filter, markdown escape) -> channel.
 Welcome: announcement with `joinedMember` + `WelcomeTracker.firstTime` -> `Ipc.command(... gc welcome ...)`.
 
-Discord to game: supervisor `OutgoingSanitizer.toGuildCommand(name, text, filter, discordPrefix)` ->
+Discord to game: supervisor `MentionText` (pings as display names) -> `EmojiText` ->
+`OutgoingSanitizer.toGuildCommands(name, text, filter, discordPrefix)` (one line, or two with (1/2) and
+(2/2); longer is cut and gets ✂️) ->
 `Ipc.command(id, cmd, checkRepeats=true, capture=false)` -> mod `GameSender.queueChat` (gap, last-3
 repeat check) -> `sent`/`rejected` back (rejected -> ❌ reaction). Not connected -> ❌ right away.
 
@@ -93,15 +96,18 @@ non-guild lines for 2.5 s after sending and returns `capture{id,text}`; supervis
 
 ## Bot commands (core `BotCommand`, never relayed)
 
-Members: `!commands`, `!g online`, `!g top`, `!g top <1-10>`.
+Members: `!commands`/`!help`, `!version`, `!patch`, `!g online`, `!g top`, `!g top <1-10>`, plus the
+profile and market commands below and the `/verify` and `/unlink` slash commands.
 Admins (`guildbridge-admins.txt`, re-read on change): also `!say`, `!mc`, `!status`, `!uptime`,
 `!start`, `!stop`, `!restart`, `!logs [1-50]`, `!rejoin`. Non-admins get ⛔.
-Owner (`owner` in guildbridge.json, always an admin): `!admin add|remove <id or @mention>`, `!admin list`.
-These edit guildbridge-admins.txt in place and keep hand-written lines and comments.
+Owner (`owner` in guildbridge.json, always an admin): `!admin add|remove <id or @mention>`, `!admin list`
+(these edit guildbridge-admins.txt in place and keep hand-written lines and comments), `!links`,
+`!unlink <@user|id|name>`.
 
-## In-game commands (Phase 2, core `sb` package)
+## Profile and market commands (Phase 2, core `sb` package)
 
-Typed in guild or officer chat, answered in the same chat in one line, never relayed to Discord.
+In game: typed in guild or officer chat, answered in the same chat in one line, never relayed to
+Discord. In Discord: answered as an embed (see 0.3.x below).
 Format `!command [arg] [user] [profile]`: arg is matched against the command's word list, a fruit
 name is a profile, anything else is a player. No user = the sender. Item commands (`!bz`, `!ah`,
 `!collection`) take free text; `!collection` peels a trailing player name if the rest is a known
@@ -110,10 +116,8 @@ collection. Spec list and parser: `PvCommands`; formatters: `PvFormat`, `MarketF
 profile in core/src/test/resources/sb.
 Supervisor side: `PvService` (fetch + format), `HypixelApi` (key from `hypixelApiKey`, caching,
 rate limit), `NodeHelper` (networth via skyhelper-networth, weight via lilyweight/senitherweight),
-`HelpPages` (Discord `!commands` with two buttons, gone after 30 s). Discord gets "Account linking
-isn't available yet! Please use commands in-game only." for game commands (except `!commands`,
-`!help`, `!version`). Per-player cooldown 10 s, at most 4 answers queued, repeated lines get
-" (for <name>)" so Hypixel doesn't block them.
+`HelpPages` (Discord `!commands` with two buttons, gone after 30 s). Repeated in-game answers get
+" (for <name>)" so Hypixel doesn't block them as duplicates.
 
 ## 0.3.x: Discord commands, linking, emoji, queue
 
@@ -143,17 +147,25 @@ and the mod reconnects with the saved secret. Requires `KillMode=process` in the
 - Auto-join (`AutoJoin`): settings from the supervisor. Screen-independent: when not in a world and
   not connecting, `ConnectScreen.startConnecting`. Backoff from `autoJoinRetrySeconds` doubling to
   `autoJoinMaxRetrySeconds`, 5 s floor, reset on join. Pausable by the supervisor.
+- Auto-join waits until the startup loading overlay is gone (read by reflection, 3 min fallback).
+  Joining during resource loading left the connection half-broken on the slow server: incoming
+  worked, nothing outgoing did, even our own disconnect.
 - Limbo (`LimboTracker`): `/locraw` after every join/level change (3 s delay) and every 10 min,
-  reply hidden via `ALLOW_GAME`. Auto `/limbo` after `autoLimboDelaySeconds` when not in limbo,
+  reply hidden via `ALLOW_GAME`; also recognizes Hypixel's own limbo/AFK chat lines. Unanswered
+  /locraw: retry every 15 s (4 times) then every minute; after 2 misses assume a lobby and send
+  `/limbo`; after 5 the connection is treated as stuck and the mod sends `stuck`, and the supervisor
+  restarts the game (alert if twice in 30 min). Auto `/limbo` after `autoLimboDelaySeconds`,
   attempts at least 30 s apart, never stacked.
 - `Minecraft.screen` and `getOverlay()` are not accessible in 26.x; screens are tracked via
   Fabric `ScreenEvents`. Fabric API 26.1 renamed `ClientWorldEvents` -> `ClientLevelEvents`.
 
 ## Moderation
 
-- `ProfanityFilter`: severities 1 mild (not censored by default), 2 strong, 3 slurs; `filterThreshold`
-  default 2; both directions; same-length asterisks. Severity 3 tier of the bundled list is EMPTY and
-  must be filled by Justin from a maintained list. Do not generate slur lists.
+- `ProfanityFilter`: severities 1 mild (not censored by default), 2 strong, 3 slurs and hate terms;
+  `filterThreshold` default 2; both directions; same-length asterisks. Catches caps, leetspeak,
+  stretched letters and common endings. A word marked `exact` only matches itself and its plural
+  (for short slurs that start normal words, e.g. spic vs spicy). Justin reviewed the list (Nov 2026).
+  A `guildbridge-filter.txt` next to the supervisor jar overrides the bundled list.
 - `LinkFilter`: `[blocked link]`, both directions, always on.
 - Attachments and stickers are never relayed (`[attachment]` / `[sticker]`).
 
@@ -166,7 +178,9 @@ BridgeBot was kicked from the guild by [VIP+] ExamplePlayer!
 You were kicked from the guild by ... / You joined NAME! / invites  -> bridge-side, handled
 ```
 Announcement blocks sit between strikethrough bars (plain text: a long run of dashes).
-Unverified: `Guild > Name joined.`/`left.`, `Officer > ...`, exact /locraw limbo reply, ban texts.
+Whispers to the bridge (for /verify): `From [MVP+] Name: message`.
+Guild MOTD on login: a titled bar (`---- Guild: Message Of The Day ----`), the text, a closing bar.
+Unverified: `Officer > ...`, exact /locraw limbo reply, the whisper format, ban texts.
 
 ## Discord setup
 
