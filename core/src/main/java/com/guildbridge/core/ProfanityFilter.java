@@ -67,11 +67,26 @@ public final class ProfanityFilter {
         for (Pattern p : patterns) {
             Matcher m = p.matcher(out);
             StringBuilder sb = new StringBuilder();
-            while (m.find()) m.appendReplacement(sb, "*".repeat(m.group().length()));
+            while (m.find()) {
+                // Leetspeak lets digits stand in for letters, so numbers like "900k" (g-o-o-k)
+                // could match. Real leetspeak words keep at least as many letters as digits.
+                String hit = m.group();
+                String repl = mostlyDigits(hit) ? hit : "*".repeat(hit.length());
+                m.appendReplacement(sb, Matcher.quoteReplacement(repl));
+            }
             m.appendTail(sb);
             out = sb.toString();
         }
         return out;
+    }
+
+    private static boolean mostlyDigits(String s) {
+        int digits = 0, letters = 0;
+        for (char c : s.toCharArray()) {
+            if (Character.isDigit(c)) digits++;
+            else if (Character.isLetter(c)) letters++;
+        }
+        return digits > letters;
     }
 
     public boolean isEmpty() {

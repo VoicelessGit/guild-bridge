@@ -1,3 +1,6 @@
+## 0.3.2
+- Fixed numbers like "900k" being censored
+
 ## 0.3.1
 - Profile commands now work in Discord (add a name, or /verify)
 - /verify links your Minecraft account on Hypixel

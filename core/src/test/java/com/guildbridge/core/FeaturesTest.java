@@ -224,4 +224,16 @@ class FeaturesTest {
         assertFalse(f.censor("spics").contains("spics"));
         assertFalse(f.censor("retarded").contains("retarded"));
     }
+
+    @Test
+    void numbersAreNotReadAsLeetspeak() {
+        ProfanityFilter f = ProfanityFilter.bundled(2);
+        // "900k" reads as a slur if every digit counts as a letter (reported Nov 2026).
+        for (String ok : new String[]{"selling for 900k", "900K each", "51.1k and 9.5m", "1000k", "3 n1 9g"}) {
+            assertEquals(ok, f.censor(ok), ok);
+        }
+        assertFalse(f.censor("g00k").contains("g00k"), "half letters, half digits is still caught");
+        assertFalse(f.censor("n1gger").contains("n1gger"));
+        assertFalse(f.censor("sh1t").contains("sh1t"));
+    }
 }
