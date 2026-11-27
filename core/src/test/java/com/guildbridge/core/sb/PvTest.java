@@ -239,4 +239,36 @@ class PvTest {
         long close = MarketFormat.nextElectionClose(now);
         assertTrue(close > now && close - now <= MarketFormat.SB_YEAR);
     }
+
+    @Test
+    void electionListsEveryCandidate() {
+        String json = """
+                {"current":{"candidates":[
+                  {"name":"Paul","votes":250,"perks":[{"name":"EZPZ"},{"name":"Marauder"},{"name":"Benediction"}]},
+                  {"name":"Diana","votes":500,"perks":[{"name":"Pet XP Buff"},{"name":"Lucky!"},{"name":"Mythological Ritual"},{"name":"Sharing is Caring"}]},
+                  {"name":"Marina","votes":125,"perks":[{"name":"Fishing Festival"},{"name":"Luck of the Sea 2.0"},{"name":"Fishing XP Buff"}]},
+                  {"name":"Cole","votes":75,"perks":[{"name":"Mining Fiesta"},{"name":"Mining XP Buff"},{"name":"Molten Forge"}]},
+                  {"name":"Foxy","votes":50,"perks":[{"name":"Sweet Benevolence"},{"name":"A Time for Giving"},{"name":"Chivalrous Carnival"}]}
+                ]}}""";
+        JsonObject e = JsonParser.parseString(json).getAsJsonObject();
+        long now = 1_795_000_000_000L;
+        String line = MarketFormat.election(e, now);
+        assertTrue(line.startsWith("Election (ends in about "), line);
+        assertTrue(line.contains("): Diana 50% (Pet XP Buff, Lucky!, Mythological Ritual, Sharing is Caring) | Paul 25% "
+                + "(EZPZ, Marauder, Benediction) | Marina 13% (Fishing Festival, Luck of the Sea 2.0, Fishing XP Buff) | "
+                + "Cole 8% (Mining Fiesta, Mining XP Buff, Molten Forge) | Foxy 5% (Sweet Benevolence, A Time for Giving, "
+                + "Chivalrous Carnival)"), line);
+        // In game it fits in two chat lines.
+        var split = com.guildbridge.core.OutgoingSanitizer.toGuildCommands("", line, null, "");
+        assertEquals(2, split.commands().size());
+        assertFalse(split.cut(), "election should fit in two lines: " + line.length());
+        // Between elections it says when voting opens.
+        String none = MarketFormat.election(new JsonObject(), now);
+        assertTrue(none.startsWith("No election is running right now. Voting opens in about "), none);
+        long open = MarketFormat.nextElectionOpen(now);
+        assertTrue(open > now && open - now <= MarketFormat.SB_YEAR);
+        // The booth opens 3 SkyBlock months after it closes.
+        assertEquals(3 * 31 * MarketFormat.SB_DAY, MarketFormat.ELECTION_OPEN_OFFSET - MarketFormat.ELECTION_CLOSE_OFFSET);
+        assertEquals("election", PvCommands.parse("!election", q -> false).spec().name());
+    }
 }

@@ -24,7 +24,11 @@ final class SupervisorConfig {
 
     // --- In-game commands (!sb, !skill, !bz ...) ---
     // Free personal key from https://developer.hypixel.net. Needed for profile commands.
-    String hypixelApiKey = "";
+    // Change it from Discord with the owner-only /apikey command.
+    volatile String hypixelApiKey = "";
+    // When /apikey last set the key (ms). Development keys last 3 days; the bot warns before then.
+    // 0 = unknown (set by hand), no warning.
+    volatile long hypixelApiKeySetAt = 0;
     // In game, answers go out one at a time this far apart; commands asked meanwhile wait in line.
     int gameCommandGapSeconds = 7;
     int maxQueuedGameCommands = 10;
@@ -87,6 +91,14 @@ final class SupervisorConfig {
         // Rewrite so new settings appear in the file with their defaults.
         Files.writeString(file, GSON.toJson(c));
         return c;
+    }
+
+    /** Writes the current settings back to the file (used by /apikey). */
+    synchronized void save(Path file) throws IOException {
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.writeString(tmp, GSON.toJson(this));
+        Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE);
     }
 
     /** The HeadlessMc launcher to run. */

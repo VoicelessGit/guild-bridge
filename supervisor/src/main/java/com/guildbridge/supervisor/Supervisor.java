@@ -103,8 +103,66 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         Thread worker = new Thread(this::gameCommandLoop, "game-commands");
         worker.setDaemon(true);
         worker.start();
+        if (data instanceof HypixelApi api) {
+            this.api = api;
+            api.setOnKeyRejected(() -> alert("apikey", "Hypixel rejected the bot's API key, so profile commands "
+                    + "are failing. Development keys expire after 3 days. Get a new one at "
+                    + "https://developer.hypixel.net and set it with `/apikey`.", false));
+        }
         bot.setOnSlash(this::onSlash);
         bot.registerSlashCommands();
+    }
+
+    private HypixelApi api;
+    /** Set once the "key expires soon" alert went out for the current key. */
+    private volatile boolean keyExpiryWarned;
+    private static final long DEV_KEY_LIFETIME_MILLIS = 72 * 3_600_000L;
+    private static final long KEY_WARN_BEFORE_MILLIS = 3 * 3_600_000L;
+
+    /** Owner-only /apikey: test the key with Hypixel, then save it. */
+    private void onApiKeySlash(net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent e) {
+        if (!cfg.isOwner(e.getUser().getId())) {
+            e.reply("⛔ Only the bot owner can change the API key.").setEphemeral(true).queue(null, err -> {});
+            return;
+        }
+        var opt = e.getOption("key");
+        String key = opt == null ? "" : opt.getAsString().strip();
+        if (!key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            e.reply("That doesn't look like a Hypixel API key (it should look like `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).")
+                    .setEphemeral(true).queue(null, err -> {});
+            return;
+        }
+        if (api == null) {
+            e.reply("Profile commands aren't running, so there's nothing to set.").setEphemeral(true).queue(null, err -> {});
+            return;
+        }
+        e.deferReply(true).queue(null, err -> {});
+        var hook = e.getHook();
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            String text;
+            try {
+                String problem = api.testKey(key);
+                if (problem != null) {
+                    text = "❌ " + problem + " The old key is still in use.";
+                } else {
+                    long now = System.currentTimeMillis();
+                    cfg.hypixelApiKey = key;
+                    cfg.hypixelApiKeySetAt = now;
+                    cfg.save(dir.resolve("guildbridge.json"));
+                    keyExpiryWarned = false;
+                    limiter.reset("apikey");
+                    limiter.reset("apikey-expiring");
+                    long expires = (now + DEV_KEY_LIFETIME_MILLIS) / 1000;
+                    text = "✅ Key works and is saved. If it's a development key it expires <t:" + expires + ":R> (<t:"
+                            + expires + ":f>), and you'll get a ping about 3 hours before.";
+                    Main.LOG.info("Hypixel API key changed with /apikey");
+                }
+            } catch (IOException | RuntimeException ex) {
+                Main.LOG.warn("/apikey failed: {}", ex.toString());
+                text = "Something went wrong saving the key: " + ex.getMessage();
+            }
+            hook.editOriginal(text).queue(null, err -> {});
+        });
     }
 
     String versionLine() {
@@ -269,10 +327,13 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             recentAnswers.addLast(line);
             while (recentAnswers.size() > 3) recentAnswers.removeFirst();
         }
-        String cmd = OutgoingSanitizer.toGuildCommand("", line, null, "");
-        if (cmd == null) return false;
-        if (cmd.startsWith("gc ") && c.channel() == BridgeEvent.Channel.OFFICER) cmd = "oc " + cmd.substring(3);
-        ipc.send(Ipc.command(ids.incrementAndGet(), cmd, true, false));
+        // Long answers (like !election) go out as two lines marked (1/2) and (2/2).
+        var split = OutgoingSanitizer.toGuildCommands("", line, null, "");
+        if (split.commands().isEmpty()) return false;
+        for (String cmd : split.commands()) {
+            if (cmd.startsWith("gc ") && c.channel() == BridgeEvent.Channel.OFFICER) cmd = "oc " + cmd.substring(3);
+            ipc.send(Ipc.command(ids.incrementAndGet(), cmd, true, false));
+        }
         return true;
     }
 
@@ -322,6 +383,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
                     }
                 });
             }
+            case "apikey" -> onApiKeySlash(e);
             case "unlink" -> {
                 String text;
                 try {
@@ -353,7 +415,10 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         pv.answer(raw, null, self).whenComplete((line, err) -> {
             if (line == null) return;
             var eb = new net.dv8tion.jda.api.EmbedBuilder()
-                    .setDescription(net.dv8tion.jda.api.utils.MarkdownSanitizer.escape(line))
+                    // One candidate per line reads better than the in-game " | " list.
+                    .setDescription(net.dv8tion.jda.api.utils.MarkdownSanitizer.escape(
+                            spec.need() == com.guildbridge.core.sb.PvCommands.Need.CANDIDATES
+                                    ? line.replace("): ", "):\n").replace(" | ", "\n") : line))
                     .setColor(0x00AAAA);
             if (link.isEmpty() && spec.player()) eb.setFooter("Tip: link your account with /verify so you can leave out your name.");
             DiscordBot.replyEmbed(msg, eb.build());
@@ -511,6 +576,14 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
                     && now - stateSince > Math.max(1, cfg.notInLimboAlertMinutes) * 60_000L) {
                 alert("not-in-limbo", "The bridge has been outside limbo for over " + cfg.notInLimboAlertMinutes
                         + " minutes (server: " + lastServer + ").", false);
+            }
+            long setAt = cfg.hypixelApiKeySetAt;
+            if (api != null && setAt > 0 && !keyExpiryWarned
+                    && now > setAt + DEV_KEY_LIFETIME_MILLIS - KEY_WARN_BEFORE_MILLIS) {
+                keyExpiryWarned = true;
+                long expires = (setAt + DEV_KEY_LIFETIME_MILLIS) / 1000;
+                alert("apikey-expiring", "The Hypixel API key set with `/apikey` expires <t:" + expires + ":R> if it's a "
+                        + "development key. Get a new one at https://developer.hypixel.net and set it with `/apikey`.", false);
             }
             pending.values().removeIf(p -> now - p.createdAt() > 120_000);
         } catch (RuntimeException e) {

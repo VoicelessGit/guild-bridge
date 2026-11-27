@@ -191,6 +191,7 @@ public final class BotCommand {
                 `!admin remove <id or @mention>` remove an admin
                 `!admin list` show the admins
                 `!links` show linked accounts
-                `!unlink <@user or name>` remove someone's link""";
+                `!unlink <@user or name>` remove someone's link
+                `/apikey <key>` set a new Hypixel API key (tested first, only you see it)""";
     }
 }

@@ -13,7 +13,7 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** !bz, !ah, !mayor, !firesale. */
+/** !bz, !ah, !mayor, !election, !firesale. */
 public final class MarketFormat {
     private MarketFormat() {}
 
@@ -204,6 +204,39 @@ public final class MarketFormat {
             sb.append(", ends in about ").append(Fmt.duration(nextElectionClose(now) - now));
         }
         return sb.toString();
+    }
+
+    /** Booth opens on Late Summer 27 (sixth month, day 27) and stays open until the next Late Spring 27. */
+    static final long ELECTION_OPEN_OFFSET = (5 * 31 + 26) * SB_DAY;
+
+    /** !election: every candidate, most votes first, with vote share and perk titles. */
+    public static String election(JsonObject election, long now) {
+        JsonArray cands = J.arr(election, "current", "candidates");
+        if (cands == null || cands.isEmpty()) {
+            return "No election is running right now. Voting opens in about " + Fmt.duration(nextElectionOpen(now) - now) + ".";
+        }
+        double total = 0;
+        for (JsonElement c : cands) total += J.num0(c, 0, "votes");
+        List<JsonElement> sorted = new ArrayList<>();
+        cands.forEach(sorted::add);
+        sorted.sort((a, b) -> Double.compare(J.num0(b, 0, "votes"), J.num0(a, 0, "votes")));
+        StringBuilder sb = new StringBuilder("Election (ends in about ")
+                .append(Fmt.duration(nextElectionClose(now) - now)).append("): ");
+        for (int i = 0; i < sorted.size(); i++) {
+            JsonElement c = sorted.get(i);
+            double v = J.num0(c, 0, "votes");
+            if (i > 0) sb.append(" | ");
+            sb.append(J.str(c, "name")).append(' ').append(total > 0 ? Math.round(v * 100 / total) : 0).append('%');
+            List<String> perks = perkNames(J.arr(c, "perks"));
+            if (!perks.isEmpty()) sb.append(" (").append(String.join(", ", perks)).append(')');
+        }
+        return sb.toString();
+    }
+
+    static long nextElectionOpen(long now) {
+        long years = Math.floorDiv(now - SB_EPOCH, SB_YEAR);
+        long open = SB_EPOCH + years * SB_YEAR + ELECTION_OPEN_OFFSET;
+        return open > now ? open : open + SB_YEAR;
     }
 
     static long nextElectionClose(long now) {

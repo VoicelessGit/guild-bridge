@@ -72,7 +72,7 @@ final class DiscordBot extends ListenerAdapter {
     }
 
     /**
-     * Registers /verify and /unlink in the bridge channel's server. Server commands show up right
+     * Registers /verify, /unlink and /apikey in the bridge channel's server. Server commands show up right
      * away. Needs the bot to have been invited with the applications.commands scope.
      */
     void registerSlashCommands() {
@@ -82,8 +82,10 @@ final class DiscordBot extends ListenerAdapter {
             ch.getGuild().updateCommands().addCommands(
                     Commands.slash("verify", "Link your Minecraft account to your Discord account")
                             .addOption(OptionType.STRING, "username", "Your Minecraft name", true),
-                    Commands.slash("unlink", "Remove the link to your Minecraft account"))
-                    .queue(ok -> Main.LOG.info("Slash commands registered (/verify, /unlink)"),
+                    Commands.slash("unlink", "Remove the link to your Minecraft account"),
+                    Commands.slash("apikey", "Bot owner only: set a new Hypixel API key")
+                            .addOption(OptionType.STRING, "key", "The new key (only you see this)", true))
+                    .queue(ok -> Main.LOG.info("Slash commands registered (/verify, /unlink, /apikey)"),
                             err -> Main.LOG.warn("Could not register slash commands ({}). Re-invite the bot with the "
                                     + "applications.commands scope to enable /verify.", err.getMessage()));
         } catch (RuntimeException e) {

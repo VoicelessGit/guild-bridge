@@ -80,6 +80,8 @@ final class PvService {
                 return MarketFormat.auction(api.prices(), items(), r.arg());
             case ELECTION:
                 return MarketFormat.mayor(api.election(), now);
+            case CANDIDATES:
+                return MarketFormat.election(api.election(), now);
             case FIRESALES:
                 return MarketFormat.firesales(api.firesales(), items()::name, now);
             default:

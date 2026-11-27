@@ -48,8 +48,33 @@ final class HypixelApi implements PvData {
     private volatile int remaining = 120;
     private volatile long resetAt;
 
+    /** Called (on the request's thread) when Hypixel rejects the configured key. */
+    private volatile Runnable onKeyRejected = () -> {};
+
     HypixelApi(Supplier<String> key) {
         this.key = key;
+    }
+
+    void setOnKeyRejected(Runnable r) {
+        onKeyRejected = r == null ? () -> {} : r;
+    }
+
+    /**
+     * Tries a key with one keyed request. Returns null when Hypixel accepts it, else a short reason.
+     * Does not touch the configured key or fire the rejected-key alert.
+     */
+    String testKey(String candidate) {
+        try {
+            // Any valid UUID works; this is a long-standing public account.
+            getJson(BASE + "/skyblock/profiles?uuid=069a79f444e94726a5befca90e38aaf5", candidate, true, false);
+            return null;
+        } catch (KeyRejectedException e) {
+            return "Hypixel rejected this key. Make sure you copied the key itself, not the application ID.";
+        } catch (NotFoundException e) {
+            return null; // the request was authorized; the player just has no data
+        } catch (ApiException e) {
+            return e.getMessage();
+        }
     }
 
     @Override
@@ -166,7 +191,31 @@ final class HypixelApi implements PvData {
         }
     }
 
+    private static final class KeyRejectedException extends ApiException {
+        KeyRejectedException() {
+            super("The bot's Hypixel API key has expired. The bot owner has been told.");
+        }
+    }
+
     private JsonObject getJson(String url, String apiKey, boolean hypixel) {
+        return getJson(url, apiKey, hypixel, true);
+    }
+
+    private JsonObject getJson(String url, String apiKey, boolean hypixel, boolean reportRejected) {
+        try {
+            return fetch(url, apiKey, hypixel);
+        } catch (KeyRejectedException e) {
+            if (reportRejected) {
+                try {
+                    onKeyRejected.run();
+                } catch (RuntimeException ignored) {
+                }
+            }
+            throw e;
+        }
+    }
+
+    private JsonObject fetch(String url, String apiKey, boolean hypixel) {
         if (hypixel && apiKey != null && remaining <= 2 && System.currentTimeMillis() < resetAt) {
             throw new ApiException("Hypixel API limit reached, try again in a minute.");
         }
@@ -189,7 +238,7 @@ final class HypixelApi implements PvData {
         if (hypixel) trackLimit(res);
         int code = res.statusCode();
         if (code == 204 || code == 404) throw new NotFoundException();
-        if (code == 403 && hypixel) throw new ApiException("The bot's Hypixel API key is invalid.");
+        if (code == 403 && hypixel && apiKey != null) throw new KeyRejectedException();
         if (code == 429) throw new ApiException(hypixel ? "Hypixel API limit reached, try again in a minute."
                 : "Too many lookups, try again in a minute.");
         if (code >= 500) throw new ApiException(hypixel ? "Hypixel API is having trouble, try again later." : "Lookup failed, try again later.");
@@ -204,6 +253,7 @@ final class HypixelApi implements PvData {
         JsonObject o = e.getAsJsonObject();
         if (hypixel && o.has("success") && !o.get("success").getAsBoolean()) {
             String cause = o.has("cause") ? o.get("cause").getAsString() : "unknown error";
+            if (apiKey != null && cause.toLowerCase(Locale.ROOT).contains("invalid api key")) throw new KeyRejectedException();
             throw new ApiException("Hypixel API: " + cause);
         }
         return o;

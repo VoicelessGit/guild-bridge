@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  */
 public final class PvCommands {
     /** What a command needs fetched before it can answer. */
-    public enum Need { NONE, PROFILE, GARDEN, NETWORTH, WEIGHT, BAZAAR, PRICES, ELECTION, FIRESALES, COLLECTIONS, VERSION }
+    public enum Need { NONE, PROFILE, GARDEN, NETWORTH, WEIGHT, BAZAAR, PRICES, ELECTION, CANDIDATES, FIRESALES, COLLECTIONS, VERSION }
 
     public enum Group { BOT, PV }
 
@@ -106,8 +106,10 @@ public final class PvCommands {
                     "!bz <item>", "bazaar prices"),
             spec("ah", List.of("lbin"), Map.of(), true, true, false, Need.PRICES, Group.BOT,
                     "!ah <item>", "auction house price"),
-            spec("mayor", List.of("election"), Map.of(), false, false, false, Need.ELECTION, Group.BOT,
+            spec("mayor", List.of(), Map.of(), false, false, false, Need.ELECTION, Group.BOT,
                     "!mayor", "current mayor and election"),
+            spec("election", List.of(), Map.of(), false, false, false, Need.CANDIDATES, Group.BOT,
+                    "!election", "candidates, their perks and votes"),
             spec("firesale", List.of("fs", "firesales"), Map.of(), false, false, false, Need.FIRESALES, Group.BOT,
                     "!firesale", "upcoming fire sales"),
             // Profile viewer commands

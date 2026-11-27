@@ -102,7 +102,8 @@ Admins (`guildbridge-admins.txt`, re-read on change): also `!say`, `!mc`, `!stat
 `!start`, `!stop`, `!restart`, `!logs [1-50]`, `!rejoin`. Non-admins get ⛔.
 Owner (`owner` in guildbridge.json, always an admin): `!admin add|remove <id or @mention>`, `!admin list`
 (these edit guildbridge-admins.txt in place and keep hand-written lines and comments), `!links`,
-`!unlink <@user|id|name>`.
+`!unlink <@user|id|name>`, `/apikey <key>` (ephemeral; tests the key with Hypixel, then saves it to
+guildbridge.json with `hypixelApiKeySetAt`).
 
 ## Profile and market commands (Phase 2, core `sb` package)
 
@@ -134,6 +135,16 @@ rate limit), `NodeHelper` (networth via skyhelper-networth, weight via lilyweigh
 - Discord to game: `EmojiText` keeps single-BMP emoji as the symbol and turns the rest into
   :name: (emoji-datasource table in guildbridge/emoji.tsv).
 - `!patch` (Discord) shows the newest section of guildbridge/changelog.md. Add a section per release.
+
+## 0.3.4: API key upkeep, !election
+
+- No production Hypixel key (application rejected), so the bot runs on development keys (3 days).
+  `HypixelApi` turns a 403 / "Invalid API key" into `KeyRejectedException` and fires the "apikey"
+  alert. A key set with `/apikey` gets a "apikey-expiring" alert 3 h before 72 h are up.
+- `!election` (`MarketFormat.election`): all candidates, most votes first, vote share and perk titles.
+  Discord shows one candidate per line. `!mayor` no longer has the `election` alias.
+- In-game answers longer than one chat line go out as two lines ((1/2), (2/2)) via
+  `OutgoingSanitizer.toGuildCommands`.
 
 ## Updates without downtime
 
