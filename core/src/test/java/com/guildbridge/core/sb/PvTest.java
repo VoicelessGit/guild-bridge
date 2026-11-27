@@ -258,10 +258,10 @@ class PvTest {
                 + "(EZPZ, Marauder, Benediction) | Marina 13% (Fishing Festival, Luck of the Sea 2.0, Fishing XP Buff) | "
                 + "Cole 8% (Mining Fiesta, Mining XP Buff, Molten Forge) | Foxy 5% (Sweet Benevolence, A Time for Giving, "
                 + "Chivalrous Carnival)"), line);
-        // In game it fits in two chat lines.
-        var split = com.guildbridge.core.OutgoingSanitizer.toGuildCommands("", line, null, "");
-        assertEquals(2, split.commands().size());
-        assertFalse(split.cut(), "election should fit in two lines: " + line.length());
+        // Discord only: in game it's just chat.
+        assertFalse(PvCommands.isGameCommand("!election"));
+        assertTrue(PvCommands.isCommand("!election"));
+        assertTrue(PvCommands.isGameCommand("!mayor"));
         // Between elections it says when voting opens.
         String none = MarketFormat.election(new JsonObject(), now);
         assertTrue(none.startsWith("No election is running right now. Voting opens in about "), none);

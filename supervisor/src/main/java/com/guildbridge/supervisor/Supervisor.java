@@ -273,7 +273,7 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
         LoopGuard g = guard;
         if (g != null && !g.shouldRelay(event)) return;
         // In-game commands are answered in game and not relayed to Discord.
-        if (event instanceof BridgeEvent.Chat c && com.guildbridge.core.sb.PvCommands.isCommand(c.message())) {
+        if (event instanceof BridgeEvent.Chat c && com.guildbridge.core.sb.PvCommands.isGameCommand(c.message())) {
             onGameCommand(c);
             return;
         }
@@ -327,13 +327,10 @@ final class Supervisor implements IpcServer.Handler, GameProcess.Listener {
             recentAnswers.addLast(line);
             while (recentAnswers.size() > 3) recentAnswers.removeFirst();
         }
-        // Long answers (like !election) go out as two lines marked (1/2) and (2/2).
-        var split = OutgoingSanitizer.toGuildCommands("", line, null, "");
-        if (split.commands().isEmpty()) return false;
-        for (String cmd : split.commands()) {
-            if (cmd.startsWith("gc ") && c.channel() == BridgeEvent.Channel.OFFICER) cmd = "oc " + cmd.substring(3);
-            ipc.send(Ipc.command(ids.incrementAndGet(), cmd, true, false));
-        }
+        String cmd = OutgoingSanitizer.toGuildCommand("", line, null, "");
+        if (cmd == null) return false;
+        if (cmd.startsWith("gc ") && c.channel() == BridgeEvent.Channel.OFFICER) cmd = "oc " + cmd.substring(3);
+        ipc.send(Ipc.command(ids.incrementAndGet(), cmd, true, false));
         return true;
     }
 

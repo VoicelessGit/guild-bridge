@@ -141,10 +141,9 @@ rate limit), `NodeHelper` (networth via skyhelper-networth, weight via lilyweigh
 - No production Hypixel key (application rejected), so the bot runs on development keys (3 days).
   `HypixelApi` turns a 403 / "Invalid API key" into `KeyRejectedException` and fires the "apikey"
   alert. A key set with `/apikey` gets a "apikey-expiring" alert 3 h before 72 h are up.
-- `!election` (`MarketFormat.election`): all candidates, most votes first, vote share and perk titles.
-  Discord shows one candidate per line. `!mayor` no longer has the `election` alias.
-- In-game answers longer than one chat line go out as two lines ((1/2), (2/2)) via
-  `OutgoingSanitizer.toGuildCommands`.
+- `!election` (`MarketFormat.election`), Discord only (`PvCommands.discordOnly`; in game it is plain
+  chat and gets relayed): all candidates, most votes first, vote share and perk titles, one per line.
+  `!mayor` no longer has the `election` alias.
 
 ## Updates without downtime
 

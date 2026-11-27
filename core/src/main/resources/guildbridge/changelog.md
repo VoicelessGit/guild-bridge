@@ -1,6 +1,5 @@
 ## 0.3.4
-- New !election shows every candidate, their perks and their share of the vote
-- Long in-game answers are sent as two messages
+- New !election (Discord only) shows every candidate, their perks and their share of the vote
 - New owner command /apikey sets a new Hypixel API key from Discord
 - The bot pings before the API key expires
 

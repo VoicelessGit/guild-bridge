@@ -109,7 +109,7 @@ public final class PvCommands {
             spec("mayor", List.of(), Map.of(), false, false, false, Need.ELECTION, Group.BOT,
                     "!mayor", "current mayor and election"),
             spec("election", List.of(), Map.of(), false, false, false, Need.CANDIDATES, Group.BOT,
-                    "!election", "candidates, their perks and votes"),
+                    "!election", "candidates, their perks and votes (Discord only)"),
             spec("firesale", List.of("fs", "firesales"), Map.of(), false, false, false, Need.FIRESALES, Group.BOT,
                     "!firesale", "upcoming fire sales"),
             // Profile viewer commands
@@ -162,6 +162,17 @@ public final class PvCommands {
     public static Optional<Spec> find(String word) {
         String w = word.toLowerCase(Locale.ROOT);
         return ALL.stream().filter(s -> s.matches(w)).findFirst();
+    }
+
+    /** Commands answered only in Discord (in game, players can just check it themselves). */
+    public static boolean discordOnly(Spec s) {
+        return s.need() == Need.CANDIDATES;
+    }
+
+    /** True for "!word ..." that the bridge answers in game; Discord-only commands stay plain chat. */
+    public static boolean isGameCommand(String text) {
+        if (!isCommand(text)) return false;
+        return !discordOnly(find(text.strip().substring(1).split("\\s+")[0]).orElseThrow());
     }
 
     /** True for "!word ..." where word is one of ours. */
